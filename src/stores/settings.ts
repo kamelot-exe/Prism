@@ -1,7 +1,6 @@
 import { writable, get } from 'svelte/store';
 import { invoke } from '@tauri-apps/api/core';
-
-export type ThemeName = 'light' | 'dark' | 'glassmorphism' | 'avant-garde' | 'brutalism' | 'yeezy-minimal' | 'auto';
+import type { ThemeName } from '../lib/theme';
 
 export interface Settings {
   theme: ThemeName;
@@ -11,7 +10,7 @@ export interface Settings {
 }
 
 const defaultSettings: Settings = {
-  theme: 'light',
+  theme: 'glassmorphism',
   firstDayOfWeek: 'monday',
   timeFormat: '24h',
   userCategoryColors: {},
@@ -20,26 +19,23 @@ const defaultSettings: Settings = {
 function createSettingsStore() {
   const { subscribe, set, update } = writable<Settings>(defaultSettings);
 
-  // Load settings from database on initialization
   const loadSettings = async () => {
     try {
-      // TODO: Implement get_settings Tauri command
-      // const settings = await invoke<Settings>('get_settings');
-      // set(settings);
+      const settings = await invoke<Settings>('get_settings').catch(() => defaultSettings);
+      set(settings || defaultSettings);
     } catch (error) {
       console.error('Failed to load settings:', error);
-      // Use defaults if loading fails
       set(defaultSettings);
     }
   };
 
-  // Save settings to database
   const saveSettings = async (newSettings: Partial<Settings>) => {
     try {
       update((current) => {
         const updated = { ...current, ...newSettings };
-        // TODO: Implement save_settings Tauri command
-        // invoke('save_settings', { settings: updated });
+        invoke('save_settings', { settings: updated }).catch((error) => {
+          console.error('Failed to persist settings:', error);
+        });
         return updated;
       });
     } catch (error) {
@@ -47,39 +43,28 @@ function createSettingsStore() {
     }
   };
 
-  // Theme switcher
   const setTheme = async (theme: ThemeName) => {
     await saveSettings({ theme });
     await applyTheme(theme);
   };
 
-  // Apply theme to document
   const applyTheme = async (theme: ThemeName) => {
     if (typeof document === 'undefined') return;
 
     const root = document.documentElement;
-    let themeToApply: string;
-    
-    if (theme === 'auto') {
-      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-      themeToApply = prefersDark ? 'dark' : 'light';
-    } else {
-      themeToApply = theme;
-    }
+    let themeToApply: ThemeName = theme;
 
-    // Load and apply theme
     try {
       const { loadTheme, applyTheme: applyThemeStyles } = await import('../lib/theme');
-      const themeData = await loadTheme(themeToApply as any);
+      const themeData = await loadTheme(themeToApply);
       applyThemeStyles(themeData);
+      root.setAttribute('data-theme', themeToApply);
     } catch (error) {
       console.error('Failed to load theme:', error);
-      // Fallback to simple data attribute
       root.setAttribute('data-theme', themeToApply);
     }
   };
 
-  // Initialize theme on store creation
   if (typeof document !== 'undefined') {
     loadSettings().then(() => {
       subscribe((settings) => {
@@ -88,13 +73,11 @@ function createSettingsStore() {
     });
   }
 
-  // Get user color for category (override category color if set)
   const getCategoryColor = (categoryId: number, defaultColor: string): string => {
     const settings = get(settingsStore);
     return settings.userCategoryColors?.[categoryId.toString()] || defaultColor;
   };
 
-  // Set user color for category
   const setCategoryColor = async (categoryId: number, color: string) => {
     update((current) => {
       const userCategoryColors = current.userCategoryColors || {};
@@ -118,4 +101,3 @@ function createSettingsStore() {
 }
 
 export const settingsStore = createSettingsStore();
-

@@ -1,207 +1,62 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, createEventDispatcher } from 'svelte';
   import { getEvents, type Event } from '../../lib/api';
 
+  export let currentDate: Date;
+  export let searchQuery = '';
+
+  const dispatch = createEventDispatcher<{ selectEvent: Event; slot: Date }>();
+
   let events: Event[] = [];
-  let currentDate = new Date();
   let loading = false;
-  let error: string | null = null;
 
-  const hours = Array.from({ length: 24 }, (_, i) => i);
-
-  onMount(async () => {
-    await loadEvents();
-  });
+  onMount(loadEvents);
+  $: currentDate && loadEvents();
 
   async function loadEvents() {
     loading = true;
-    error = null;
-    try {
-      const startDate = new Date(currentDate);
-      startDate.setHours(0, 0, 0, 0);
-      const endDate = new Date(currentDate);
-      endDate.setHours(23, 59, 59, 999);
-      events = await getEvents(startDate.toISOString(), endDate.toISOString());
-    } catch (e) {
-      error = e instanceof Error ? e.message : 'Failed to load events';
-    } finally {
-      loading = false;
-    }
+    const start = new Date(currentDate);
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(currentDate);
+    end.setHours(23, 59, 59, 999);
+    events = await getEvents(start.toISOString(), end.toISOString()).catch(() => []);
+    loading = false;
   }
 
-  function getEventsForHour(hour: number): Event[] {
-    return events.filter(event => {
-      const eventDate = new Date(event.start_time);
-      return eventDate.getDate() === currentDate.getDate() &&
-             eventDate.getMonth() === currentDate.getMonth() &&
-             eventDate.getFullYear() === currentDate.getFullYear() &&
-             eventDate.getHours() === hour;
-    });
-  }
-
-  function previousDay() {
-    currentDate = new Date(currentDate);
-    currentDate.setDate(currentDate.getDate() - 1);
-    loadEvents();
-  }
-
-  function nextDay() {
-    currentDate = new Date(currentDate);
-    currentDate.setDate(currentDate.getDate() + 1);
-    loadEvents();
-  }
-
-  function formatDate(date: Date): string {
-    return date.toLocaleDateString('en-US', { 
-      weekday: 'long', 
-      year: 'numeric', 
-      month: 'long', 
-      day: 'numeric' 
-    });
-  }
-
-  function formatTime(date: Date): string {
-    return date.toLocaleTimeString('en-US', { 
-      hour: '2-digit', 
-      minute: '2-digit' 
-    });
-  }
+  $: filtered = events.filter((event) => event.title.toLowerCase().includes(searchQuery.toLowerCase()));
 </script>
 
-<div class="day-view">
-  <div class="day-header">
-    <button class="nav-button" on:click={previousDay}>←</button>
-    <h2>{formatDate(currentDate)}</h2>
-    <button class="nav-button" on:click={nextDay}>→</button>
+<div class="view">
+  <div class="legend">
+    <div>
+      <h2>Day</h2>
+      <p class="muted">Focus on a single day.</p>
+    </div>
+    {#if loading}<span class="pill">Loading…</span>{/if}
   </div>
-
-  {#if error}
-    <div class="error">{error}</div>
-  {/if}
-
-  <div class="day-timeline">
-    {#each hours as hour}
-      <div class="hour-row">
-        <div class="time-label">{hour}:00</div>
-        <div class="hour-content">
-          {#each getEventsForHour(hour) as event}
-            <div class="event-item" style="background-color: var(--accent-color, #3b82f6);">
-              <div class="event-time">
-                {formatTime(new Date(event.start_time))} - {formatTime(new Date(event.end_time))}
-              </div>
-              <div class="event-title">{event.title}</div>
-              {#if event.description}
-                <div class="event-description">{event.description}</div>
-              {/if}
-            </div>
-          {/each}
-        </div>
-      </div>
+  <div class="timeline">
+    {#each Array(12) as _, idx}
+      {#if filtered[idx]}
+        <button class="card" on:click={() => dispatch('selectEvent', filtered[idx])}>
+          <strong>{new Date(filtered[idx].start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</strong>
+          <span>{filtered[idx].title}</span>
+        </button>
+      {:else}
+        <button class="ghost" on:click={() => dispatch('slot', new Date(currentDate.getFullYear(), currentDate.getMonth(), currentDate.getDate(), idx + 8))}>
+          Add at {idx + 8}:00
+        </button>
+      {/if}
     {/each}
   </div>
 </div>
 
 <style>
-  .day-view {
-    max-width: 1000px;
-    margin: 0 auto;
-  }
-
-  .day-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 2rem;
-  }
-
-  .day-header h2 {
-    margin: 0;
-    font-size: 1.75rem;
-    color: var(--text-primary);
-  }
-
-  .nav-button {
-    background: var(--bg-primary);
-    border: 1px solid var(--border-color);
-    border-radius: 0.375rem;
-    padding: 0.5rem 1rem;
-    cursor: pointer;
-    color: var(--text-primary);
-    font-size: 1rem;
-    transition: all 0.2s;
-  }
-
-  .nav-button:hover {
-    background: var(--bg-hover);
-  }
-
-  .error {
-    background: var(--error-color);
-    color: white;
-    padding: 1rem;
-    border-radius: 0.375rem;
-    margin-bottom: 1rem;
-  }
-
-  .day-timeline {
-    background: var(--bg-primary);
-    border: 1px solid var(--border-color);
-    border-radius: 0.5rem;
-    overflow: hidden;
-  }
-
-  .hour-row {
-    display: grid;
-    grid-template-columns: 80px 1fr;
-    border-bottom: 1px solid var(--border-color);
-    min-height: 80px;
-  }
-
-  .hour-row:last-child {
-    border-bottom: none;
-  }
-
-  .time-label {
-    padding: 0.5rem;
-    font-size: 0.875rem;
-    color: var(--text-secondary);
-    border-right: 1px solid var(--border-color);
-    text-align: right;
-  }
-
-  .hour-content {
-    padding: 0.5rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-  }
-
-  .event-item {
-    padding: 0.75rem;
-    border-radius: 0.375rem;
-    color: white;
-    cursor: pointer;
-    transition: opacity 0.2s;
-  }
-
-  .event-item:hover {
-    opacity: 0.9;
-  }
-
-  .event-time {
-    font-size: 0.75rem;
-    opacity: 0.9;
-    margin-bottom: 0.25rem;
-  }
-
-  .event-title {
-    font-weight: 600;
-    margin-bottom: 0.25rem;
-  }
-
-  .event-description {
-    font-size: 0.875rem;
-    opacity: 0.9;
-  }
+  .view { display: grid; gap: 0.75rem; }
+  .legend { display: flex; justify-content: space-between; align-items: center; }
+  .muted { color: var(--text-muted); }
+  .timeline { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.5rem; }
+  .card { display: grid; gap: 0.25rem; align-items: start; text-align: left; background: var(--card-bg); border: 1px solid var(--card-border); border-radius: var(--radius-md); padding: 0.75rem; box-shadow: var(--shadow-xs); color: var(--text); cursor: pointer; }
+  .ghost { border: 1px dashed var(--border); border-radius: var(--radius-md); padding: 0.75rem; background: transparent; color: var(--text-muted); cursor: pointer; }
+  .ghost:hover { background: var(--bg-hover); }
+  .pill { padding: 0.35rem 0.6rem; background: var(--accent-light); border-radius: var(--radius-sm); color: var(--text); }
 </style>
-
