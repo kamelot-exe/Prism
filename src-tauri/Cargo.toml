@@ -1,0 +1,35 @@
+[package]
+name = "prism-calendar"
+version = "0.1.0"
+description = "Prism Calendar - Desktop Calendar Application"
+authors = ["Prism Calendar Team"]
+license = ""
+repository = ""
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2.5.2", features = [] }
+
+[dependencies]
+tauri = { version = "2.9.0", features = [] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sqlx = { version = "0.7", features = ["runtime-tokio-native-tls", "sqlite", "chrono", "migrate"] }
+tokio = { version = "1", features = ["full"] }
+chrono = { version = "0.4", features = ["serde"] }
+anyhow = "1.0"
+thiserror = "1.0"
+reqwest = { version = "0.11", features = ["json"] }
+oauth2 = { version = "4.4", features = ["reqwest"] }
+url = "2.5"
+keyring = "2.3"
+base64 = "0.22"
+rand = "0.8"
+axum = { version = "0.7", features = ["tokio"] }
+tower = "0.4"
+tower-http = { version = "0.5", features = ["cors"] }
+
+[features]
+# This feature is used for production builds or when `devPath` points to the filesystem
+custom-protocol = ["tauri/custom-protocol"]
+
