@@ -1,0 +1,175 @@
+/* ===============================================
+   AURORA NEON THEME — futuristic neon gradients,
+   sci-fi glow, deep backgrounds, subtle glass.
+   =============================================== */
+
+:root {
+  /* Core palette */
+  --bg-0: #070B1A;
+  --bg-1: linear-gradient(135deg, #071328 0%, #0F1A35 50%, #091123 100%);
+  --surface-0: rgba(255,255,255,0.05);
+  --surface-1: rgba(255,255,255,0.03);
+  --text-primary: #E8EEFF;
+  --text-muted: rgba(230,240,255,0.65);
+
+  /* Neon accents */
+  --accent-1: #62d2ff;   /* neon ice blue */
+  --accent-2: #9b6bff;   /* violet glow */
+  --accent-3: #4af7cb;   /* mint glow */
+
+  /* Borders & effects */
+  --border: rgba(255,255,255,0.08);
+  --shadow-1: 0 0 22px rgba(98,210,255,0.25);
+  --shadow-2: 0 0 32px rgba(155,107,255,0.18);
+  --glass-blur: 20px;
+
+  /* Radii */
+  --radius-sm: 8px;
+  --radius-md: 14px;
+  --radius-lg: 22px;
+
+  /* Typography */
+  --font-base: "Inter", system-ui;
+  --font-heading: "Inter", system-ui;
+
+  /* Motion */
+  --motion-fast: 130ms;
+  --motion-medium: 220ms;
+  --motion-slow: 380ms;
+}
+
+/* Base */
+body {
+  margin: 0;
+  background: var(--bg-1);
+  color: var(--text-primary);
+  font-family: var(--font-base);
+  -webkit-font-smoothing: antialiased;
+  background-attachment: fixed;
+}
+
+/* Background aurora overlay */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background: radial-gradient(circle at 20% 40%, rgba(98,210,255,0.15), transparent 60%),
+              radial-gradient(circle at 80% 60%, rgba(155,107,255,0.12), transparent 65%),
+              radial-gradient(circle at 50% 80%, rgba(74,247,203,0.1), transparent 70%);
+  pointer-events: none;
+  z-index: -1;
+}
+
+/* Topbar */
+.topbar {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding:14px 20px;
+  background: rgba(255,255,255,0.03);
+  backdrop-filter: blur(var(--glass-blur));
+  border-bottom: 1px solid var(--border);
+  box-shadow: var(--shadow-1);
+}
+
+/* Sidebar */
+.sidebar {
+  width:260px;
+  padding:20px;
+  background: rgba(255,255,255,0.03);
+  backdrop-filter: blur(calc(var(--glass-blur) * 0.7));
+  border-right: 1px solid var(--border);
+  border-radius: 0 var(--radius-lg) var(--radius-lg) 0;
+}
+
+/* Card */
+.card {
+  background: var(--surface-0);
+  padding: 16px;
+  border-radius: var(--radius-md);
+  border:1px solid var(--border);
+  backdrop-filter: blur(var(--glass-blur));
+  box-shadow: var(--shadow-2);
+  transition: transform var(--motion-medium), box-shadow var(--motion-medium);
+}
+.card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 0 25px rgba(98,210,255,0.35);
+}
+
+/* Buttons */
+.btn {
+  padding:10px 16px;
+  border-radius: var(--radius-md);
+  background: rgba(255,255,255,0.04);
+  border: 1px solid var(--border);
+  color:var(--text-primary);
+  transition: all var(--motion-fast);
+  cursor:pointer;
+}
+.btn:hover {
+  background: rgba(255,255,255,0.08);
+  box-shadow: var(--shadow-1);
+}
+.btn.primary {
+  background: linear-gradient(90deg, var(--accent-1), var(--accent-2));
+  color:#08101f;
+  border:none;
+  font-weight:600;
+}
+.btn.primary:hover { transform: translateY(-2px); }
+
+/* Event chip */
+.event-chip {
+  display:flex;
+  gap:8px;
+  padding:6px 12px;
+  background: rgba(255,255,255,0.06);
+  border-radius: var(--radius-sm);
+  border:1px solid rgba(255,255,255,0.05);
+}
+.event-chip .swatch {
+  width:10px; height:10px; border-radius:3px;
+}
+
+/* Month grid */
+.month-grid {
+  display:grid;
+  grid-template-columns: repeat(7,1fr);
+  gap:14px;
+}
+.month-cell {
+  min-height:110px;
+  padding:12px;
+  border-radius: var(--radius-md);
+  background: rgba(255,255,255,0.02);
+  border:1px solid rgba(255,255,255,0.03);
+}
+
+/* Date number */
+.month-cell .date {
+  font-weight:600;
+  font-size:15px;
+  color:var(--text-primary);
+}
+
+/* Modal */
+.modal {
+  padding:20px;
+  background: rgba(255,255,255,0.04);
+  border-radius: var(--radius-lg);
+  border:1px solid var(--border);
+  backdrop-filter: blur(calc(var(--glass-blur) * 1.2));
+  box-shadow: 0 0 40px rgba(98,210,255,0.35);
+}
+
+/* Inputs */
+.input {
+  width:100%;
+  padding:12px 14px;
+  border-radius: var(--radius-md);
+  background: rgba(0,0,0,0.3);
+  color: var(--text-primary);
+  border:1px solid rgba(255,255,255,0.08);
+}
+.input::placeholder { color: rgba(230,240,255,0.4); }

@@ -1,86 +1,111 @@
 <script lang="ts">
-  import { Router, Link, Route } from 'svelte-routing';
+  import { onMount } from 'svelte';
+  import TopBar from './components/TopBar.svelte';
+  import Sidebar from './components/Sidebar.svelte';
   import MonthView from './components/views/MonthView.svelte';
   import WeekView from './components/views/WeekView.svelte';
   import DayView from './components/views/DayView.svelte';
-  import Settings from './components/Settings.svelte';
   import { settingsStore } from './stores/settings';
 
-  let currentPath = '/month';
-  
-  // Handle hash-based routing for Tauri
-  if (typeof window !== 'undefined') {
-    const hash = window.location.hash.slice(1) || '/month';
-    currentPath = hash.startsWith('/') ? hash : `/${hash}`;
+  let currentDate = new Date();
+  let viewMode: 'day' | 'week' | 'month' = 'month';
+  let searchQuery = '';
+
+  onMount(async () => {
+    // Apply initial theme
+    await settingsStore.applyTheme($settingsStore.theme);
+  });
+
+  function handleNavigate(event: CustomEvent<{ direction: 'prev' | 'next' | 'today' }>) {
+    const { direction } = event.detail;
+    if (direction === 'today') {
+      currentDate = new Date();
+    } else if (direction === 'prev') {
+      if (viewMode === 'month') {
+        currentDate = new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1);
+      } else if (viewMode === 'week') {
+        currentDate = new Date(currentDate);
+        currentDate.setDate(currentDate.getDate() - 7);
+      } else {
+        currentDate = new Date(currentDate);
+        currentDate.setDate(currentDate.getDate() - 1);
+      }
+    } else if (direction === 'next') {
+      if (viewMode === 'month') {
+        currentDate = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1);
+      } else if (viewMode === 'week') {
+        currentDate = new Date(currentDate);
+        currentDate.setDate(currentDate.getDate() + 7);
+      } else {
+        currentDate = new Date(currentDate);
+        currentDate.setDate(currentDate.getDate() + 1);
+      }
+    }
+  }
+
+  function handleViewChange(event: CustomEvent<'day' | 'week' | 'month'>) {
+    viewMode = event.detail;
+  }
+
+  function handleSearch(event: CustomEvent<string>) {
+    searchQuery = event.detail;
+  }
+
+  function handleDateSelect(event: CustomEvent<Date>) {
+    currentDate = event.detail;
+  }
+
+  function handleThemeSelect(event: CustomEvent<'light' | 'dark' | 'glassmorphism' | 'avant-garde' | 'brutalism' | 'yeezy-minimal'>) {
+    settingsStore.setTheme(event.detail);
   }
 </script>
 
-<Router url={currentPath}>
-  <nav class="navbar">
-    <div class="nav-brand">
-      <h1>Prism Calendar</h1>
-    </div>
-    <div class="nav-links">
-      <Link to="/month" class="nav-link">Month</Link>
-      <Link to="/week" class="nav-link">Week</Link>
-      <Link to="/day" class="nav-link">Day</Link>
-      <Link to="/settings" class="nav-link">Settings</Link>
-    </div>
-  </nav>
+<div class="app">
+  <TopBar
+    {currentDate}
+    {viewMode}
+    on:navigate={handleNavigate}
+    on:viewChange={handleViewChange}
+    on:search={handleSearch}
+  />
 
-  <main class="main-content">
-    <Route path="/month" component={MonthView} />
-    <Route path="/week" component={WeekView} />
-    <Route path="/day" component={DayView} />
-    <Route path="/settings" component={Settings} />
-  </main>
-</Router>
+  <div class="app-body">
+    <Sidebar
+      on:dateSelect={handleDateSelect}
+      on:themeSelect={handleThemeSelect}
+    />
+
+    <main class="main-area">
+      {#if viewMode === 'month'}
+        <MonthView {currentDate} {searchQuery} />
+      {:else if viewMode === 'week'}
+        <WeekView {currentDate} {searchQuery} />
+      {:else}
+        <DayView {currentDate} {searchQuery} />
+      {/if}
+    </main>
+  </div>
+</div>
 
 <style>
-  :global(body) {
-    margin: 0;
-    padding: 0;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-  }
-
-  .navbar {
+  .app {
     display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 1rem 2rem;
-    background-color: var(--bg-primary, #ffffff);
-    border-bottom: 1px solid var(--border-color, #e5e7eb);
+    flex-direction: column;
+    height: 100vh;
+    overflow: hidden;
+    background: var(--bg);
   }
 
-  .nav-brand h1 {
-    margin: 0;
-    font-size: 1.5rem;
-    color: var(--text-primary, #111827);
-  }
-
-  .nav-links {
+  .app-body {
     display: flex;
-    gap: 1.5rem;
+    flex: 1;
+    overflow: hidden;
   }
 
-  .nav-link {
-    text-decoration: none;
-    color: var(--text-secondary, #6b7280);
-    font-weight: 500;
-    padding: 0.5rem 1rem;
-    border-radius: 0.375rem;
-    transition: all 0.2s;
-  }
-
-  .nav-link:hover {
-    background-color: var(--bg-hover, #f3f4f6);
-    color: var(--text-primary, #111827);
-  }
-
-  .main-content {
-    padding: 2rem;
-    min-height: calc(100vh - 80px);
-    background-color: var(--bg-secondary, #f9fafb);
+  .main-area {
+    flex: 1;
+    overflow-y: auto;
+    padding: var(--spacing-xl);
+    background: var(--bg);
   }
 </style>
-

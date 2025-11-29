@@ -4,36 +4,20 @@
   import { settingsStore } from '../../stores/settings';
   import EventModal from '../EventModal.svelte';
   import QuickAddModal from '../QuickAddModal.svelte';
-  import ThemedCard from '../ThemedCard.svelte';
-  import { loadTheme, type Theme } from '../../lib/theme';
+
+  export let currentDate: Date;
+  export let searchQuery: string = '';
 
   let events: Event[] = [];
-  let currentDate = new Date();
   let loading = false;
   let error: string | null = null;
   let selectedEvent: Event | null = null;
   let isEventModalOpen = false;
   let isQuickAddOpen = false;
   let quickAddDate: Date | undefined;
-  let theme: Theme | null = null;
 
-  $: if ($settingsStore.theme) {
-    loadThemeData();
-  }
-
-  async function loadThemeData() {
-    try {
-      const themeName = $settingsStore.theme === 'auto' 
-        ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
-        : $settingsStore.theme;
-      theme = await loadTheme(themeName as any);
-    } catch (error) {
-      console.error('Failed to load theme:', error);
-    }
-  }
-
-  const year = currentDate.getFullYear();
-  const month = currentDate.getMonth();
+  $: year = currentDate.getFullYear();
+  $: month = currentDate.getMonth();
 
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const firstDayOfMonth = new Date(year, month, 1).getDay();
@@ -75,22 +59,12 @@
   function getEventsForDay(day: number | null): Event[] {
     if (day === null) return [];
     const dayDate = new Date(year, month, day);
-    return events.filter(event => {
+    return filteredEvents.filter(event => {
       const eventDate = new Date(event.start_time);
       return eventDate.getDate() === day && 
              eventDate.getMonth() === month && 
              eventDate.getFullYear() === year;
     });
-  }
-
-  function previousMonth() {
-    currentDate = new Date(year, month - 1, 1);
-    loadEvents();
-  }
-
-  function nextMonth() {
-    currentDate = new Date(year, month + 1, 1);
-    loadEvents();
   }
 
   function handleEventClick(event: Event) {
@@ -121,8 +95,12 @@
     if (event.category && event.category.color) {
       return $settingsStore.getCategoryColor(event.category.id || 0, event.category.color);
     }
-    return 'var(--accent-color, #3b82f6)';
+    return 'var(--accent)';
   }
+
+  $: filteredEvents = searchQuery 
+    ? events.filter(e => e.title.toLowerCase().includes(searchQuery.toLowerCase()))
+    : events;
 
   function isToday(day: number): boolean {
     const today = new Date();
@@ -133,23 +111,11 @@
 </script>
 
 <div class="month-view">
-  <div class="month-header">
-    <button class="nav-button" on:click={previousMonth}>←</button>
-    <h2>{monthNames[month]} {year}</h2>
-    <div class="header-actions">
-      <button class="action-button" on:click={() => { quickAddDate = new Date(); isQuickAddOpen = true; }}>
-        + Quick Add
-      </button>
-      <button class="nav-button" on:click={nextMonth}>→</button>
-    </div>
-  </div>
-
   {#if error}
     <div class="error">{error}</div>
   {/if}
 
-  {#if theme}
-    <ThemedCard theme={theme} elevation="md" class="calendar-grid">
+  <div class="calendar-grid">
     <div class="weekday-header">
       {#each weekDays as day}
         <div class="weekday">{day}</div>
@@ -186,62 +152,27 @@
         </div>
       {/each}
     </div>
-    </ThemedCard>
-  {/if}
+  </div>
 </div>
 
-{#if theme}
-  <EventModal
-    bind:isOpen={isEventModalOpen}
-    event={selectedEvent}
-    on:close={() => { selectedEvent = null; isEventModalOpen = false; }}
-    on:save={handleEventSave}
-  />
+<EventModal
+  bind:isOpen={isEventModalOpen}
+  event={selectedEvent}
+  on:close={() => { selectedEvent = null; isEventModalOpen = false; }}
+  on:save={handleEventSave}
+/>
 
-  <QuickAddModal
-    bind:isOpen={isQuickAddOpen}
-    defaultDate={quickAddDate}
-    on:close={() => { isQuickAddOpen = false; quickAddDate = undefined; }}
-    on:create={handleQuickAdd}
-  />
-{/if}
+<QuickAddModal
+  bind:isOpen={isQuickAddOpen}
+  defaultDate={quickAddDate}
+  on:close={() => { isQuickAddOpen = false; quickAddDate = undefined; }}
+  on:create={handleQuickAdd}
+/>
 
 <style>
   .month-view {
-    max-width: 1200px;
-    margin: 0 auto;
-  }
-
-  .month-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 2rem;
-    gap: 1rem;
-  }
-
-  .header-actions {
-    display: flex;
-    gap: 1rem;
-    align-items: center;
-  }
-
-  .action-button {
-    background: var(--accent-color);
-    color: white;
-    border: none;
-    border-radius: var(--border-radius-md, 0.5rem);
-    padding: 0.5rem 1rem;
-    cursor: pointer;
-    font-size: 0.875rem;
-    font-weight: var(--font-weight-medium, 500);
-    transition: all 0.2s;
-  }
-
-  .action-button:hover {
-    background: var(--accent-hover);
-    transform: translateY(-1px);
-    box-shadow: var(--shadow-sm);
+    width: 100%;
+    height: 100%;
   }
 
   .month-header h2 {
@@ -274,22 +205,26 @@
   }
 
   .calendar-grid {
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: var(--radius-md);
+    box-shadow: var(--card-shadow);
     overflow: hidden;
   }
 
   .weekday-header {
     display: grid;
     grid-template-columns: repeat(7, 1fr);
-    background: var(--bg-hover);
-    border-bottom: 1px solid var(--border-color);
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--grid-line);
   }
 
   .weekday {
-    padding: 0.75rem;
+    padding: var(--spacing-md);
     text-align: center;
-    font-weight: 600;
+    font-weight: var(--font-weight-semibold);
     color: var(--text-secondary);
-    font-size: 0.875rem;
+    font-size: var(--font-size-sm);
   }
 
   .calendar-days {
@@ -299,12 +234,12 @@
 
   .calendar-day {
     min-height: 120px;
-    border-right: 1px solid var(--border-color);
-    border-bottom: 1px solid var(--border-color);
-    padding: 0.5rem;
+    border-right: 1px solid var(--grid-line);
+    border-bottom: 1px solid var(--grid-line);
+    padding: var(--spacing-sm);
     position: relative;
     cursor: pointer;
-    transition: background 0.2s;
+    transition: background var(--animation-duration) var(--animation-easing);
   }
 
   .calendar-day:hover:not(.empty) {
@@ -317,7 +252,7 @@
   }
 
   .calendar-day.today .day-number {
-    background: var(--accent-color);
+    background: var(--accent);
     color: white;
     width: 28px;
     height: 28px;
@@ -325,7 +260,7 @@
     align-items: center;
     justify-content: center;
     border-radius: 50%;
-    font-weight: var(--font-weight-bold, 700);
+    font-weight: var(--font-weight-bold);
   }
 
   .calendar-day:nth-child(7n) {
@@ -345,26 +280,27 @@
   }
 
   .event-item {
-    font-size: 0.75rem;
-    padding: 0.25rem 0.5rem;
-    border-radius: var(--border-radius-sm, 0.375rem);
+    font-size: var(--font-size-xs);
+    padding: var(--spacing-xs) var(--spacing-sm);
+    border-radius: var(--radius-sm);
     color: white;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
     cursor: pointer;
-    transition: all 0.2s;
-    font-weight: var(--font-weight-medium, 500);
+    transition: all var(--animation-duration) var(--animation-easing);
+    font-weight: var(--font-weight-medium);
+    margin-bottom: var(--spacing-xs);
   }
 
   .event-item:hover {
     opacity: 0.9;
     transform: translateX(2px);
-    box-shadow: var(--shadow-sm);
+    box-shadow: var(--shadow-xs);
   }
 
   .event-item:focus {
-    outline: 2px solid var(--accent-color);
+    outline: 2px solid var(--accent);
     outline-offset: 2px;
   }
 </style>

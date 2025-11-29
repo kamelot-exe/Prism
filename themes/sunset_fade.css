@@ -1,0 +1,131 @@
+/* ======================================================
+   SUNSET FADE THEME
+   Warm sunset gradients, soft surfaces, cozy productivity.
+   ====================================================== */
+
+:root {
+  /* Gradient background */
+  --bg-1: linear-gradient(180deg, #ffe5a3, #ffb18a, #ff7c84);
+
+  /* Surfaces */
+  --surface-0: rgba(255,255,255,0.75); 
+  --surface-1: rgba(255,255,255,0.55);
+
+  --text-primary: #4e2a21;
+  --text-muted: rgba(78,42,33,0.7);
+
+  /* Accents */
+  --accent-1: #ff6f55;  /* fiery orange */
+  --accent-2: #ff9aa7;  /* soft pink */
+
+  --border: rgba(0,0,0,0.08);
+
+  /* Soft shadows */
+  --shadow-1: 0 6px 20px rgba(255,120,100,0.25);
+  --shadow-2: 0 10px 28px rgba(255,120,100,0.35);
+
+  /* Radii */
+  --radius-sm: 12px;
+  --radius-md: 18px;
+
+  /* Fonts */
+  --font-base: "Inter", system-ui;
+  --font-heading: "Inter", system-ui;
+
+  --motion-medium: 200ms;
+}
+
+/* Base */
+body {
+  margin:0;
+  background:var(--bg-1);
+  color:var(--text-primary);
+  font-family:var(--font-base);
+  -webkit-font-smoothing:antialiased;
+}
+
+/* Topbar */
+.topbar {
+  padding:16px 20px;
+  background:var(--surface-0);
+  backdrop-filter: blur(12px);
+  border-bottom:1px solid rgba(0,0,0,0.05);
+  border-radius:0 0 var(--radius-md) var(--radius-md);
+}
+
+/* Sidebar */
+.sidebar {
+  width:240px;
+  padding:20px;
+  background:var(--surface-0);
+  backdrop-filter: blur(8px);
+  border-radius:0 var(--radius-md) var(--radius-md) 0;
+  box-shadow: var(--shadow-1);
+}
+
+/* Cards */
+.card {
+  padding:18px;
+  background:var(--surface-0);
+  backdrop-filter: blur(10px);
+  border-radius: var(--radius-md);
+  border:1px solid var(--border);
+  box-shadow: var(--shadow-1);
+  transition: box-shadow var(--motion-medium), transform var(--motion-medium);
+}
+.card:hover {
+  transform:translateY(-3px);
+  box-shadow: var(--shadow-2);
+}
+
+/* Buttons */
+.btn {
+  padding:10px 16px;
+  border-radius: var(--radius-sm);
+  border:none;
+  background:var(--surface-1);
+  backdrop-filter: blur(4px);
+  color:var(--text-primary);
+  font-weight:600;
+}
+.btn.primary {
+  background:var(--accent-1);
+  color:#fff;
+}
+.btn.primary:hover { box-shadow: 0 4px 14px rgba(255,120,100,0.35); }
+
+/* Month grid */
+.month-grid {
+  display:grid;
+  grid-template-columns: repeat(7,1fr);
+  gap:16px;
+}
+.month-cell {
+  min-height:110px;
+  padding:16px;
+  background:var(--surface-1);
+  backdrop-filter: blur(6px);
+  border-radius: var(--radius-md);
+  border:1px solid rgba(255,255,255,0.45);
+}
+
+/* Event */
+.event-card {
+  padding:8px 12px;
+  margin-top:8px;
+  background: var(--accent-2);
+  color:#ffffff;
+  border-radius: var(--radius-sm);
+  font-weight:600;
+}
+
+/* Input */
+.input {
+  width:100%;
+  padding:12px 14px;
+  border-radius: var(--radius-md);
+  background: var(--surface-1);
+  border:none;
+  backdrop-filter: blur(6px);
+  color:var(--text-primary);
+}

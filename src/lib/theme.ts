@@ -1,45 +1,55 @@
 export interface Theme {
   name: string;
   description?: string;
-  'bg-primary': string;
+  bg: string;
   'bg-secondary': string;
   'bg-hover': string;
-  'bg-card'?: string;
-  'text-primary': string;
+  text: string;
   'text-secondary': string;
   'text-muted'?: string;
-  'border-color': string;
-  'accent-color': string;
-  'accent-hover': string;
+  accent: string;
+  'accent-secondary': string;
   'accent-light'?: string;
-  'success-color': string;
-  'error-color': string;
-  'warning-color': string;
-  'border-radius-sm': string;
-  'border-radius-md': string;
-  'border-radius-lg': string;
-  'border-radius-xl': string;
+  border: string;
+  'border-light'?: string;
+  'card-bg': string;
+  'card-border': string;
+  'card-shadow': string;
+  'modal-bg': string;
+  'modal-shadow': string;
+  'modal-backdrop'?: string;
+  'sidebar-bg': string;
+  'sidebar-border': string;
+  'topbar-bg': string;
+  'topbar-border': string;
+  'grid-line': string;
+  'button-bg': string;
+  'button-hover': string;
+  'button-active': string;
+  'button-text': string;
+  'radius-sm': string;
+  'radius-md': string;
+  'radius-lg': string;
+  'shadow-xs'?: string;
   'shadow-sm': string;
   'shadow-md': string;
   'shadow-lg': string;
-  'shadow-xl': string;
-  'backdrop-blur'?: string;
-  'font-family': string;
-  'font-weight-normal': string;
-  'font-weight-medium': string;
-  'font-weight-semibold': string;
-  'font-weight-bold': string;
-  'animation-duration': string;
-  'animation-easing': string;
+  blur?: string;
   'background-gradient'?: string;
 }
 
-export type ThemeName = 'light' | 'dark' | 'glassmorphism' | 'avant-garde' | 'brutalism' | 'aurora-vibe';
+export type ThemeName = 'light' | 'dark' | 'glassmorphism' | 'avant-garde' | 'brutalism' | 'yeezy-minimal';
 
 export async function loadTheme(themeName: ThemeName): Promise<Theme> {
   try {
     // Handle theme name mapping for file names
-    const themeFileName = themeName === 'avant-garde' ? 'avant-garde' : themeName;
+    let themeFileName = themeName;
+    if (themeName === 'avant-garde') {
+      themeFileName = 'avant-garde';
+    } else if (themeName === 'yeezy-minimal') {
+      themeFileName = 'yeezy-minimal';
+    }
+    
     const response = await fetch(`/themes/${themeFileName}.json`);
     if (!response.ok) {
       throw new Error(`Failed to load theme: ${themeName}`);
@@ -53,38 +63,50 @@ export async function loadTheme(themeName: ThemeName): Promise<Theme> {
       return await fallback.json();
     } catch (fallbackError) {
       console.error('Failed to load fallback theme:', fallbackError);
-      // Return a minimal default theme
-      return {
-        name: 'Light',
-        'bg-primary': '#ffffff',
-        'bg-secondary': '#f9fafb',
-        'bg-hover': '#f3f4f6',
-        'text-primary': '#111827',
-        'text-secondary': '#6b7280',
-        'border-color': '#e5e7eb',
-        'accent-color': '#3b82f6',
-        'accent-hover': '#2563eb',
-        'success-color': '#10b981',
-        'error-color': '#ef4444',
-        'warning-color': '#f59e0b',
-        'border-radius-sm': '0.375rem',
-        'border-radius-md': '0.5rem',
-        'border-radius-lg': '0.75rem',
-        'border-radius-xl': '1rem',
-        'shadow-sm': '0 1px 2px rgba(0, 0, 0, 0.05)',
-        'shadow-md': '0 4px 6px rgba(0, 0, 0, 0.1)',
-        'shadow-lg': '0 10px 15px rgba(0, 0, 0, 0.1)',
-        'shadow-xl': '0 20px 25px rgba(0, 0, 0, 0.15)',
-        'font-family': '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, sans-serif',
-        'font-weight-normal': '400',
-        'font-weight-medium': '500',
-        'font-weight-semibold': '600',
-        'font-weight-bold': '700',
-        'animation-duration': '0.3s',
-        'animation-easing': 'cubic-bezier(0.4, 0, 0.2, 1)',
-      };
+      // Return a minimal default theme with new token system
+      return getDefaultTheme();
     }
   }
+}
+
+function getDefaultTheme(): Theme {
+  return {
+    name: 'Light',
+    bg: '#ffffff',
+    'bg-secondary': '#f9fafb',
+    'bg-hover': '#f3f4f6',
+    text: '#111827',
+    'text-secondary': '#6b7280',
+    'text-muted': '#9ca3af',
+    accent: '#3b82f6',
+    'accent-secondary': '#2563eb',
+    'accent-light': 'rgba(59, 130, 246, 0.1)',
+    border: '#e5e7eb',
+    'border-light': 'rgba(229, 231, 235, 0.5)',
+    'card-bg': '#ffffff',
+    'card-border': '#e5e7eb',
+    'card-shadow': '0 1px 3px rgba(0, 0, 0, 0.1)',
+    'modal-bg': '#ffffff',
+    'modal-shadow': '0 20px 25px rgba(0, 0, 0, 0.15)',
+    'modal-backdrop': 'rgba(0, 0, 0, 0.5)',
+    'sidebar-bg': '#ffffff',
+    'sidebar-border': '#e5e7eb',
+    'topbar-bg': '#ffffff',
+    'topbar-border': '#e5e7eb',
+    'grid-line': '#e5e7eb',
+    'button-bg': '#f3f4f6',
+    'button-hover': '#e5e7eb',
+    'button-active': '#d1d5db',
+    'button-text': '#111827',
+    'radius-sm': '4px',
+    'radius-md': '8px',
+    'radius-lg': '16px',
+    'shadow-xs': '0 1px 2px rgba(0, 0, 0, 0.05)',
+    'shadow-sm': '0 1px 3px rgba(0, 0, 0, 0.1)',
+    'shadow-md': '0 4px 6px rgba(0, 0, 0, 0.1)',
+    'shadow-lg': '0 10px 15px rgba(0, 0, 0, 0.1)',
+    blur: 'none',
+  };
 }
 
 export function applyTheme(theme: Theme) {
@@ -95,7 +117,8 @@ export function applyTheme(theme: Theme) {
   // Apply all theme properties as CSS variables
   Object.entries(theme).forEach(([key, value]) => {
     if (key !== 'name' && key !== 'description') {
-      const cssVar = `--${key.replace(/-/g, '-')}`;
+      // Convert kebab-case to CSS variable format
+      const cssVar = `--${key}`;
       root.style.setProperty(cssVar, value);
     }
   });
@@ -108,10 +131,10 @@ export function applyTheme(theme: Theme) {
   }
   
   // Set backdrop blur if available
-  if (theme['backdrop-blur']) {
-    root.style.setProperty('--backdrop-blur', theme['backdrop-blur']);
+  if (theme.blur) {
+    root.style.setProperty('--blur', theme.blur);
   } else {
-    root.style.removeProperty('--backdrop-blur');
+    root.style.setProperty('--blur', 'none');
   }
   
   // Set data attribute for theme-specific styling

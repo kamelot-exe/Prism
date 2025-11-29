@@ -1,0 +1,199 @@
+/* themes/glass.css
+   Modern glassmorphism theme. Dark atmospheric background, translucent cards,
+   readable high-contrast text on top of frosted panels, soft accents.
+*/
+
+:root{
+  /* Core tokens */
+  --bg-0: #0b1220;            /* deep page background */
+  --bg-1: linear-gradient(180deg,#07101a 0%, #0f1a2b 100%); /* subtle gradient */
+  --surface-0: rgba(255,255,255,0.06); /* frosted card base */
+  --surface-1: rgba(255,255,255,0.04); /* slightly darker panel */
+  --glass-border: rgba(255,255,255,0.08);
+  --glass-blur: 18px;
+  --text-primary: #E6F0FF;    /* near-white for primary text */
+  --text-strong: #FFFFFF;     /* for headings when needed */
+  --text-muted: rgba(230,240,255,0.70);
+  --accent-1: #6EE7B7;        /* mint */
+  --accent-2: #7B8CFF;        /* electric blue */
+  --accent-3: #C084FC;        /* violet secondary */
+  --danger: #FF6B6B;
+  --success: #2DD4BF;
+  --border: rgba(255,255,255,0.06);
+  --shadow-1: 0 8px 30px rgba(2,6,23,0.65);
+  --radius-sm: 8px;
+  --radius-md: 14px;
+  --radius-lg: 20px;
+  --space-xs: 6px;
+  --space-sm: 12px;
+  --space-md: 18px;
+  --space-lg: 28px;
+  --font-base: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+  --font-heading: "Inter", system-ui, -apple-system, "Segoe UI", Roboto;
+  --motion-fast: 120ms;
+  --motion-medium: 220ms;
+  --motion-slow: 360ms;
+}
+
+/* Page */
+html,body{height:100%}
+body{
+  margin:0;
+  min-height:100vh;
+  font-family:var(--font-base);
+  background:var(--bg-1);
+  color:var(--text-primary);
+  -webkit-font-smoothing:antialiased;
+  -moz-osx-font-smoothing:grayscale;
+  background-attachment:fixed;
+  /* subtle noise layer can be added as background-image if desired */
+}
+
+/* App container */
+.app {
+  padding: var(--space-lg);
+  box-sizing:border-box;
+}
+
+/* Topbar */
+.topbar {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  padding:10px 16px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+  backdrop-filter: blur(var(--glass-blur));
+  border-radius: calc(var(--radius-md) * 0.6);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--shadow-1);
+}
+
+/* Sidebar */
+.sidebar {
+  width:260px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.02));
+  border-radius: var(--radius-md);
+  padding: 14px;
+  border: 1px solid var(--glass-border);
+  backdrop-filter: blur(calc(var(--glass-blur) * 0.6));
+}
+
+/* Main card / panels */
+.card {
+  background: var(--surface-0);
+  border-radius: var(--radius-md);
+  padding: 12px;
+  border: 1px solid var(--glass-border);
+  backdrop-filter: blur(var(--glass-blur));
+  box-shadow: var(--shadow-1);
+  transition: transform var(--motion-medium), box-shadow var(--motion-medium), opacity var(--motion-medium);
+}
+.card:hover { transform: translateY(-6px); }
+
+/* Buttons */
+.btn {
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  padding:8px 12px;
+  border-radius:999px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.00));
+  color:var(--text-primary);
+  border:1px solid rgba(255,255,255,0.06);
+  cursor:pointer;
+  transition: all var(--motion-fast);
+}
+.btn.primary {
+  background: linear-gradient(90deg, var(--accent-1), var(--accent-2));
+  color:#081026;
+  font-weight:600;
+  border:none;
+}
+.btn.primary:hover { transform: translateY(-2px); box-shadow: 0 6px 18px rgba(75,85,120,0.25); }
+
+/* Event chip */
+.event-chip {
+  display:flex;
+  align-items:center;
+  gap:8px;
+  padding:6px 10px;
+  border-radius:10px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.02));
+  color:var(--text-primary);
+  border:1px solid rgba(255,255,255,0.04);
+  font-size:13px;
+}
+.event-chip .swatch {
+  width:10px; height:10px; border-radius:3px;
+  box-shadow: 0 1px 6px rgba(0,0,0,0.35) inset;
+}
+
+/* Event chip accent styles (use via inline style or class) */
+.event-chip--mint .swatch{ background: var(--accent-1); }
+.event-chip--blue .swatch{ background: var(--accent-2); }
+.event-chip--violet .swatch{ background: var(--accent-3); }
+
+/* Month grid */
+.month-grid {
+  display:grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap:10px;
+}
+.month-cell {
+  min-height:100px;
+  padding:10px;
+  border-radius: calc(var(--radius-sm));
+  background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+  border:1px solid rgba(255,255,255,0.02);
+}
+.month-cell .date {
+  font-weight:600;
+  font-size:14px;
+  color:var(--text-strong);
+}
+.month-cell .dots {
+  margin-top:8px;
+  display:flex;
+  gap:6px;
+  flex-wrap:wrap;
+}
+.dot {
+  width:8px; height:8px;
+  border-radius:50%;
+  box-shadow: 0 2px 6px rgba(2,6,23,0.45);
+}
+
+/* Modal */
+.modal {
+  max-width:720px;
+  width:100%;
+  margin:20px auto;
+  background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.04));
+  border-radius: var(--radius-md);
+  padding:18px;
+  border: 1px solid var(--glass-border);
+  backdrop-filter: blur(var(--glass-blur));
+  box-shadow: 0 30px 80px rgba(2,6,23,0.65);
+}
+
+/* Inputs */
+.input {
+  width:100%;
+  padding:10px 12px;
+  border-radius:10px;
+  background: rgba(255,255,255,0.03);
+  border:1px solid rgba(255,255,255,0.04);
+  color:var(--text-primary);
+  outline:none;
+}
+.input::placeholder { color: rgba(230,240,255,0.45); }
+
+/* small utility */
+.muted { color: var(--text-muted); font-size:13px; }
+.h1 { font-size:20px; font-weight:700; color:var(--text-strong); }
+
+/* Accessibility notes:
+   - Primary text (#E6F0FF) has good contrast on the dark background.
+   - Avoid using pure white text on light translucent cards.
+*/

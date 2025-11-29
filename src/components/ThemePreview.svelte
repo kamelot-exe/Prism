@@ -33,16 +33,16 @@
   class="theme-preview"
   class:selected
   on:click={handleClick}
-  style:background={theme?.['bg-primary']}
-  style:border-color={theme?.['border-color']}
-  style:border-radius={theme?.['border-radius-md']}
+  style:background={theme?.bg}
+  style:border-color={theme?.border}
+  style:border-radius={theme?.['radius-md']}
   style:box-shadow={selected ? theme?.['shadow-lg'] : theme?.['shadow-sm']}
 >
   {#if loading}
     <div class="loading">Loading...</div>
   {:else if theme}
     <div class="theme-header">
-      <h3 style:color={theme['text-primary']}>{theme.name}</h3>
+      <h3 style:color={theme.text}>{theme.name}</h3>
       {#if theme.description}
         <p class="description" style:color={theme['text-secondary']}>
           {theme.description}
@@ -51,40 +51,34 @@
     </div>
 
     <div class="theme-preview-content">
-      <ThemedCard theme={theme} class="preview-card">
-        <div class="preview-item" style:background={theme['accent-color']}>
+      <div class="preview-card" style:background={theme['card-bg']} style:border-color={theme['card-border']} style:border-radius={theme['radius-md']}>
+        <div class="preview-item" style:background={theme.accent}>
           <span style:color="white">Accent</span>
         </div>
-        <div class="preview-item" style:background={theme['success-color']}>
-          <span style:color="white">Success</span>
-        </div>
-        <div class="preview-item" style:background={theme['error-color']}>
-          <span style:color="white">Error</span>
-        </div>
-      </ThemedCard>
+      </div>
 
       <div class="color-swatches">
         <div
           class="swatch"
-          style:background={theme['bg-primary']}
-          style:border-color={theme['border-color']}
-          title="Primary Background"
+          style:background={theme.bg}
+          style:border-color={theme.border}
+          title="Background"
         ></div>
         <div
           class="swatch"
           style:background={theme['bg-secondary']}
-          style:border-color={theme['border-color']}
-          title="Secondary Background"
+          style:border-color={theme.border}
+          title="Secondary"
         ></div>
         <div
           class="swatch"
-          style:background={theme['accent-color']}
+          style:background={theme.accent}
           title="Accent"
         ></div>
         <div
           class="swatch"
-          style:background={theme['text-primary']}
-          title="Primary Text"
+          style:background={theme.text}
+          title="Text"
         ></div>
       </div>
     </div>
@@ -94,13 +88,11 @@
 <style>
   .theme-preview {
     width: 100%;
-    padding: 1.5rem;
+    padding: var(--spacing-lg);
     border: 2px solid;
-    background: var(--bg-primary);
     cursor: pointer;
-    transition: all var(--animation-duration, 0.3s) var(--animation-easing, ease);
+    transition: all var(--animation-duration) var(--animation-easing);
     text-align: left;
-    font-family: var(--font-family);
   }
 
   .theme-preview:hover {
@@ -109,7 +101,7 @@
   }
 
   .theme-preview.selected {
-    border-color: var(--accent-color) !important;
+    border-color: var(--accent) !important;
     box-shadow: var(--shadow-lg) !important;
   }
 
@@ -144,11 +136,20 @@
     min-height: 80px;
   }
 
+  .preview-card {
+    padding: var(--spacing-md);
+    border: 1px solid;
+    min-height: 60px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
   .preview-item {
-    padding: 0.5rem;
-    border-radius: var(--border-radius-sm, 0.375rem);
-    font-size: 0.75rem;
-    font-weight: var(--font-weight-medium, 500);
+    padding: var(--spacing-sm);
+    border-radius: var(--radius-sm);
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-medium);
   }
 
   .color-swatches {

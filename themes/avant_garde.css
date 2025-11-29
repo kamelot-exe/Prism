@@ -1,0 +1,141 @@
+/* themes/avant_garde.css
+   Avant-Garde: high-contrast, geometric accents, editorial layout.
+   Bright base, bold headings, asymmetrical shapes.
+*/
+
+:root{
+  --bg-0: #FCFCFE;
+  --bg-1: linear-gradient(180deg,#FFF,#F8FBFF);
+  --surface-0: #FFFFFF;
+  --text-primary: #0B1220;
+  --text-muted: #4B5563;
+  --accent-1: #0033FF; /* ultramarine */
+  --accent-2: #FFD400; /* lemon */
+  --accent-3: #D0006F; /* magenta */
+  --accent-4: #00C2FF;
+  --shape-opacity: 0.06;
+  --border: rgba(11,18,32,0.06);
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --shadow-1: 0 8px 22px rgba(11,18,32,0.06);
+  --font-heading: 'Neue Haas Grotesk', 'Roboto Condensed', system-ui;
+  --font-base: 'Inter', system-ui;
+  --motion-medium: 180ms;
+}
+
+/* Base */
+body{
+  margin:0;
+  background:var(--bg-1);
+  color:var(--text-primary);
+  font-family:var(--font-base);
+  -webkit-font-smoothing:antialiased;
+}
+
+/* Bold editorial header */
+.topbar {
+  padding:18px 22px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:18px;
+  background:transparent;
+}
+.brand {
+  font-family:var(--font-heading);
+  font-weight:700;
+  font-size:22px;
+  letter-spacing: -0.02em;
+}
+
+/* shapes layer */
+.bg-shape {
+  position:absolute;
+  inset:auto 0 0 50px;
+  height:220px;
+  width:420px;
+  background: linear-gradient(135deg, var(--accent-1), var(--accent-4));
+  opacity:var(--shape-opacity);
+  transform: rotate(-16deg);
+  border-radius:12px;
+}
+
+/* Sidebar minimal */
+.sidebar {
+  padding:18px;
+  background:transparent;
+  border-right: 1px dashed var(--border);
+}
+
+/* Cards */
+.card {
+  background: var(--surface-0);
+  border-radius: var(--radius-md);
+  padding:14px;
+  border-left: 6px solid rgba(0,0,0,0.04);
+  box-shadow: var(--shadow-1);
+}
+
+/* Month grid with editorial slant */
+.month-grid {
+  display:grid;
+  grid-template-columns: repeat(7,1fr);
+  gap:14px;
+}
+.month-cell {
+  padding:12px;
+  min-height:96px;
+  position:relative;
+  overflow:hidden;
+}
+.month-cell .date {
+  font-family:var(--font-heading);
+  font-size:16px;
+  font-weight:700;
+  color:var(--text-primary);
+  transform: translateY(-2px);
+}
+
+/* diagonal accent bar for days with heavy schedule */
+.day-accent {
+  position:absolute;
+  width:200%;
+  height:40%;
+  left:-50%;
+  top:70%;
+  transform: rotate(-12deg);
+  background: linear-gradient(90deg, var(--accent-2), rgba(255,255,255,0));
+  opacity:0.12;
+}
+
+/* Event block - editorial */
+.event-card {
+  display:block;
+  padding:8px 10px;
+  margin-top:8px;
+  border-radius:6px;
+  background: linear-gradient(90deg, rgba(0,51,255,0.06), rgba(208,0,111,0.04));
+  color:var(--text-primary);
+  font-weight:600;
+}
+
+/* Button styles - flat and strong */
+.btn {
+  padding:8px 14px;
+  border-radius:8px;
+  border:2px solid var(--accent-1);
+  background:transparent;
+  color:var(--accent-1);
+  font-weight:700;
+}
+.btn.primary {
+  background: var(--accent-1);
+  color:#fff;
+  border:none;
+}
+
+/* Typography scale */
+.h1 { font-family:var(--font-heading); font-size:28px; font-weight:700; letter-spacing:-0.02em; }
+.h2 { font-size:18px; font-weight:700; }
+
+/* Accessibility: ensure text is >=4.5:1 on backgrounds - use solid colors for text on light surfaces */

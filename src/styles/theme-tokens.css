@@ -1,0 +1,96 @@
+/* Theme Token System - Base Variables */
+:root {
+  /* Colors - Background */
+  --bg: #ffffff;
+  --bg-secondary: #f9fafb;
+  --bg-hover: #f3f4f6;
+  
+  /* Colors - Text */
+  --text: #111827;
+  --text-secondary: #6b7280;
+  --text-muted: #9ca3af;
+  
+  /* Colors - Accent */
+  --accent: #3b82f6;
+  --accent-secondary: #2563eb;
+  --accent-light: rgba(59, 130, 246, 0.1);
+  
+  /* Colors - Border */
+  --border: #e5e7eb;
+  --border-light: rgba(229, 231, 235, 0.5);
+  
+  /* Colors - Cards */
+  --card-bg: #ffffff;
+  --card-border: #e5e7eb;
+  --card-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  
+  /* Colors - Modal */
+  --modal-bg: #ffffff;
+  --modal-shadow: 0 20px 25px rgba(0, 0, 0, 0.15);
+  --modal-backdrop: rgba(0, 0, 0, 0.5);
+  
+  /* Colors - Sidebar */
+  --sidebar-bg: #ffffff;
+  --sidebar-border: #e5e7eb;
+  
+  /* Colors - Topbar */
+  --topbar-bg: #ffffff;
+  --topbar-border: #e5e7eb;
+  
+  /* Colors - Grid */
+  --grid-line: #e5e7eb;
+  
+  /* Colors - Buttons */
+  --button-bg: #f3f4f6;
+  --button-hover: #e5e7eb;
+  --button-active: #d1d5db;
+  --button-text: #111827;
+  
+  /* Spacing System */
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 12px;
+  --spacing-lg: 16px;
+  --spacing-xl: 24px;
+  --spacing-2xl: 32px;
+  
+  /* Typography */
+  --font-size-xs: 12px;
+  --font-size-sm: 14px;
+  --font-size-base: 16px;
+  --font-size-lg: 18px;
+  --font-size-xl: 24px;
+  --font-size-2xl: 32px;
+  
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+  
+  /* Border Radius */
+  --radius-none: 0;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 16px;
+  
+  /* Shadows */
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.1);
+  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.1);
+  --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.1);
+  
+  /* Blur */
+  --blur: none;
+  --blur-sm: blur(4px);
+  --blur-md: blur(8px);
+  --blur-lg: blur(16px);
+  
+  /* Animation */
+  --animation-duration: 150ms;
+  --animation-easing: ease-out;
+  
+  /* Layout */
+  --sidebar-width: 280px;
+  --topbar-height: 64px;
+}
+

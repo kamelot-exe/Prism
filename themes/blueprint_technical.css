@@ -1,0 +1,136 @@
+/* =======================================================
+   BLUEPRINT TECHNICAL THEME
+   Architectural blueprint aesthetic, precise lines,
+   white-on-blue contrast, technical minimalism.
+   ======================================================= */
+
+:root {
+  --bg-0: #0a1b3d;  /* blueprint navy */
+  --bg-1: linear-gradient(180deg,#0a1b3d,#0c234a);
+
+  --surface-0: rgba(255,255,255,0.12);
+  --surface-1: rgba(255,255,255,0.08);
+
+  --text-primary: #ffffff;
+  --text-muted: rgba(255,255,255,0.65);
+
+  --accent-1: #9ed2ff; /* cyan lines */
+  --accent-warning: #ffc857;
+
+  --grid-line: rgba(255,255,255,0.15);
+  --border: rgba(255,255,255,0.12);
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+
+  --shadow-glow: 0 0 20px rgba(158,210,255,0.25);
+
+  --font-base: "Inter", system-ui;
+  --font-mono: "JetBrains Mono", monospace;
+
+  --motion-medium: 220ms;
+}
+
+/* Base */
+body {
+  margin:0;
+  background:var(--bg-1);
+  color:var(--text-primary);
+  font-family:var(--font-base);
+}
+
+/* Micro-line blueprint grid */
+body::after {
+  content:"";
+  position:fixed;
+  inset:0;
+  background-size: 32px 32px;
+  background-image:
+     linear-gradient(to right, var(--grid-line) 1px, transparent 1px),
+     linear-gradient(to bottom, var(--grid-line) 1px, transparent 1px);
+  pointer-events:none;
+  z-index:-1;
+}
+
+/* Topbar */
+.topbar {
+  padding:14px 20px;
+  background: var(--surface-0);
+  backdrop-filter: blur(6px);
+  border-bottom:1px solid var(--border);
+  box-shadow: var(--shadow-glow);
+}
+
+/* Sidebar */
+.sidebar {
+  width:240px;
+  padding:18px;
+  background: var(--surface-1);
+  border-right:1px solid var(--border);
+  backdrop-filter: blur(6px);
+}
+
+/* Card */
+.card {
+  padding:14px;
+  background: var(--surface-0);
+  border-radius: var(--radius-sm);
+  border:1px solid var(--border);
+  box-shadow: var(--shadow-glow);
+  backdrop-filter: blur(8px);
+}
+
+/* Buttons */
+.btn {
+  padding:10px 16px;
+  border-radius: var(--radius-sm);
+  border:1px solid var(--accent-1);
+  background:transparent;
+  color:var(--accent-1);
+  font-family:var(--font-mono);
+  transition: all var(--motion-medium);
+}
+.btn:hover {
+  color:#0a1b3d;
+  background:var(--accent-1);
+}
+
+/* Month grid */
+.month-grid {
+  display:grid;
+  grid-template-columns: repeat(7,1fr);
+  gap:12px;
+}
+.month-cell {
+  min-height:100px;
+  padding:12px;
+  border:1px solid var(--border);
+  background: var(--surface-1);
+  border-radius: var(--radius-sm);
+}
+.month-cell .date {
+  font-weight:700;
+  font-family:var(--font-mono);
+}
+
+/* Event */
+.event-card {
+  padding:8px 10px;
+  margin-top:8px;
+  border-left:3px solid var(--accent-1);
+  background: rgba(255,255,255,0.15);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size:14px;
+}
+
+/* Inputs */
+.input {
+  width:100%;
+  padding:10px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-1);
+  border:1px solid var(--border);
+  color:var(--text-primary);
+  font-family:var(--font-mono);
+}

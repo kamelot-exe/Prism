@@ -1,0 +1,149 @@
+/* ===========================================================
+   CYBER MINIMAL GRID THEME
+   Ultra-clean, high-tech minimalism with a strict grid layout,
+   light surfaces, black text, neon accents.
+   =========================================================== */
+
+:root {
+  /* Core colors */
+  --bg-0: #ffffff;
+  --bg-1: #f7f8fa;
+
+  --surface-0: #ffffff;
+  --surface-1: #fafafa;
+
+  --text-primary: #0d0d0d;
+  --text-muted: #505050;
+
+  /* Cyber accents */
+  --accent-1: #00f59b;  /* neon green */
+  --accent-2: #0098ff;  /* cyan-blue */
+  --accent-danger: #ff3b30;
+
+  /* Lines and grid */
+  --border: rgba(0,0,0,0.12);
+  --grid-line: rgba(0,0,0,0.08);
+
+  /* Radii */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+
+  /* Shadows */
+  --shadow-sm: 0 2px 7px rgba(0,0,0,0.05);
+  --shadow-md: 0 4px 18px rgba(0,0,0,0.06);
+
+  /* Typography */
+  --font-base: "Inter", system-ui, -apple-system, "Segoe UI";
+  --font-mono: "JetBrains Mono", monospace;
+
+  --motion-fast: 120ms;
+  --motion-medium: 200ms;
+}
+
+/* Base */
+body {
+  margin:0;
+  background:var(--bg-1);
+  color:var(--text-primary);
+  font-family:var(--font-base);
+}
+
+/* Background micro-grid */
+body::after {
+  content:"";
+  position:fixed;
+  inset:0;
+  background-size: 24px 24px;
+  background-image:
+     linear-gradient(to right, var(--grid-line) 1px, transparent 1px),
+     linear-gradient(to bottom, var(--grid-line) 1px, transparent 1px);
+  pointer-events:none;
+  z-index:-1;
+}
+
+/* Topbar */
+.topbar {
+  padding:14px 20px;
+  background: var(--surface-0);
+  border-bottom:1px solid var(--border);
+}
+
+/* Sidebar */
+.sidebar {
+  width:240px;
+  padding:18px;
+  background: var(--surface-0);
+  border-right: 1px solid var(--border);
+}
+
+/* Card */
+.card {
+  background: var(--surface-0);
+  padding:14px;
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-sm);
+  border:1px solid var(--border);
+  transition: box-shadow var(--motion-medium), transform var(--motion-medium);
+}
+.card:hover {
+  transform:translateY(-3px);
+  box-shadow:var(--shadow-md);
+}
+
+/* Buttons */
+.btn {
+  padding:10px 16px;
+  border-radius: var(--radius-sm);
+  border:1px solid var(--border);
+  background:var(--surface-1);
+  color:var(--text-primary);
+  transition: all var(--motion-fast);
+  cursor:pointer;
+}
+.btn:hover { border-color:var(--accent-2); color:var(--accent-2); }
+.btn.primary {
+  background:var(--accent-1);
+  border:none;
+  color:#032a17;
+  font-weight:600;
+}
+
+/* Month grid */
+.month-grid {
+  display:grid;
+  grid-template-columns: repeat(7,1fr);
+  gap:12px;
+}
+.month-cell {
+  min-height:110px;
+  padding:12px;
+  border-radius: var(--radius-sm);
+  border:1px solid var(--border);
+  background:var(--surface-1);
+}
+
+/* Date */
+.month-cell .date {
+  font-weight:600;
+  font-size:15px;
+}
+
+/* Event card */
+.event-card {
+  padding:8px 10px;
+  margin-top:8px;
+  border-left:3px solid var(--accent-2);
+  background:var(--surface-0);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-sm);
+  font-size:14px;
+}
+
+/* Inputs */
+.input {
+  width:100%;
+  padding:10px;
+  border-radius: var(--radius-sm);
+  border:1px solid var(--border);
+  background:var(--surface-0);
+}

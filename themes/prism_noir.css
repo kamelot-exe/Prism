@@ -1,0 +1,130 @@
+/* themes/prism_noir.css
+   Cinematic minimalism: deep black canvas, elegant serif headings, large typographic focus,
+   subtle textures, sand/beige accents.
+*/
+
+:root{
+  --bg-0: #000000; /* true black */
+  --bg-1: linear-gradient(180deg,#000000,#0a0a0a);
+  --surface-0: #0b0b0b;
+  --card-elev: rgba(255,255,255,0.03);
+  --text-primary: #F3F3F3;  /* slightly off-white for best legibility */
+  --text-muted: rgba(243,243,243,0.6);
+  --accent-1: #D4C4A8;      /* sand */
+  --accent-2: #FFB86C;      /* warm neon */
+  --accent-3: #8B8B8B;      /* cool gray */
+  --border: rgba(255,255,255,0.06);
+  --radius-md: 12px;
+  --shadow-1: 0 20px 60px rgba(0,0,0,0.85);
+  --font-heading: 'Playfair Display', serif;
+  --font-base: 'Inter', system-ui;
+  --motion-slow: 300ms;
+}
+
+/* base */
+body{
+  margin:0;
+  background:var(--bg-1);
+  color:var(--text-primary);
+  font-family:var(--font-base);
+  -webkit-font-smoothing:antialiased;
+}
+
+/* topbar - transparent, with subtle border */
+.topbar {
+  padding:18px 22px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  background:transparent;
+  border-bottom:1px solid var(--border);
+}
+
+/* sidebar - minimal */
+.sidebar {
+  width:260px;
+  padding:20px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.01), rgba(255,255,255,0.00));
+  border-right:1px solid var(--border);
+}
+
+/* main card - deep card with glassy edge */
+.card {
+  background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+  border-radius:var(--radius-md);
+  padding:18px;
+  border:1px solid var(--border);
+  box-shadow: var(--shadow-1);
+}
+
+/* typography emphasis */
+.h1 {
+  font-family: var(--font-heading);
+  font-size:28px;
+  font-weight:600;
+  color:var(--text-primary);
+  letter-spacing:-0.01em;
+}
+.h2 {
+  font-size:18px; color:var(--text-muted);
+}
+
+/* month grid - large date numbers */
+.month-cell {
+  min-height:100px; padding:14px;
+  background:transparent;
+  border-radius:10px;
+}
+.month-cell .date {
+  font-family:var(--font-heading);
+  font-size:18px;
+  font-weight:700;
+  color:var(--text-primary);
+}
+
+/* event card - thin left accent line */
+.event-card {
+  display:flex;
+  gap:12px;
+  padding:10px 12px;
+  border-radius:10px;
+  background: rgba(255,255,255,0.02);
+  border:1px solid rgba(255,255,255,0.02);
+  align-items:center;
+}
+.event-card .accent-line{
+  width:4px; height:100%;
+  border-radius:4px;
+  background: var(--accent-1);
+  margin-right:8px;
+}
+
+/* buttons - minimal */
+.btn {
+  padding:8px 12px;
+  border-radius:8px;
+  background:transparent;
+  color:var(--text-primary);
+  border:1px solid rgba(255,255,255,0.04);
+}
+.btn.primary {
+  background: linear-gradient(90deg,var(--accent-1), var(--accent-2));
+  color:#0b0b0b;
+  border:none;
+}
+
+/* input */
+.input {
+  padding:12px;
+  border-radius:8px;
+  background: rgba(255,255,255,0.02);
+  border: 1px solid rgba(255,255,255,0.02);
+  color: var(--text-primary);
+}
+
+/* micro interactions - cinematic delays */
+.card, .modal, .topbar { transition: opacity var(--motion-slow), transform var(--motion-slow); }
+
+/* Accessibility note:
+   Off-white text #F3F3F3 on black passes contrast. Maintain that for primary copy.
+*/

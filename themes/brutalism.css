@@ -1,0 +1,109 @@
+/* themes/brutalism.css
+   Brutalism-inspired UI: strong lines, heavy borders, high contrast, blocky layout.
+*/
+
+:root{
+  --bg-0: #ffffff;
+  --surface-0: #ffffff;
+  --text-primary: #0B0B0B;
+  --accent-1: #FFCC00; /* strong yellow */
+  --accent-2: #FF3B30; /* danger */
+  --border-strong: #0B0B0B; /* heavy black border */
+  --radius-sm: 0px;
+  --radius-md: 4px;
+  --shadow-none: none;
+  --font-heading: 'Roboto Slab', 'Courier New', serif;
+  --font-base: 'Roboto Mono', monospace;
+  --space-sm: 8px;
+  --space-md: 12px;
+  --motion-fast: 80ms;
+}
+
+/* page */
+body{
+  margin:0;
+  background:var(--bg-0);
+  color:var(--text-primary);
+  font-family:var(--font-base);
+  -webkit-font-smoothing:antialiased;
+}
+
+/* strong topbar */
+.topbar {
+  display:flex;
+  align-items:center;
+  padding:12px 16px;
+  background:transparent;
+  border-bottom: 4px solid var(--border-strong);
+}
+
+/* sidebar with heavy border */
+.sidebar {
+  width:240px;
+  padding:16px;
+  border-right: 4px solid var(--border-strong);
+  background:transparent;
+}
+
+/* card - heavy framed blocks */
+.card {
+  background: var(--surface-0);
+  border: 3px solid var(--border-strong);
+  padding: 14px;
+  border-radius: var(--radius-md);
+}
+
+/* buttons - blocky */
+.btn {
+  display:inline-block;
+  padding:10px 14px;
+  border:3px solid var(--border-strong);
+  background:var(--surface-0);
+  color:var(--text-primary);
+  font-weight:800;
+  text-transform:uppercase;
+  letter-spacing:0.02em;
+  cursor:pointer;
+}
+.btn.primary {
+  background: var(--accent-1);
+  color:var(--text-primary);
+  border-color: var(--accent-1);
+}
+
+/* month grid - blocky squares, strong lines */
+.month-grid{
+  display:grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap:6px;
+}
+.month-cell{
+  min-height:110px;
+  padding:12px;
+  border: 3px solid var(--border-strong);
+  background: #fff;
+}
+.month-cell .date { font-weight:900; font-size:16px; }
+
+/* event block - simple solid box */
+.event-card {
+  background: var(--accent-2);
+  color:#fff;
+  padding:8px;
+  margin-top:8px;
+  font-weight:700;
+  border-radius:2px;
+}
+
+/* inputs - rectangular */
+.input {
+  padding:10px;
+  border:3px solid var(--border-strong);
+  border-radius:2px;
+  background:transparent;
+  font-family:var(--font-base);
+}
+
+/* Visual note:
+   Brutalism uses high contrast only. Ensure any accent text on yellow uses black (#0B0B0B) for contrast.
+*/
