@@ -1,9 +1,7 @@
 use anyhow::{Context, Result};
 use oauth2::{
-    basic::BasicClient,
-    reqwest::async_http_client,
-    AuthorizationCode, AuthUrl, ClientId, ClientSecret, RedirectUrl, Scope, TokenResponse,
-    TokenUrl,
+    basic::BasicClient, reqwest::async_http_client, AuthUrl, AuthorizationCode, ClientId,
+    ClientSecret, RedirectUrl, Scope, TokenResponse, TokenUrl,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -60,9 +58,9 @@ impl OAuthClient {
             .await
             .context("Failed to exchange authorization code")?;
 
-        let expires_at = token
-            .expires_in()
-            .map(|duration| chrono::Utc::now() + chrono::Duration::seconds(duration.as_secs() as i64));
+        let expires_at = token.expires_in().map(|duration| {
+            chrono::Utc::now() + chrono::Duration::seconds(duration.as_secs() as i64)
+        });
 
         let token_info = TokenInfo {
             access_token: token.access_token().secret().clone(),
@@ -87,9 +85,9 @@ impl OAuthClient {
             .await
             .context("Failed to refresh access token")?;
 
-        let expires_at = token
-            .expires_in()
-            .map(|duration| chrono::Utc::now() + chrono::Duration::seconds(duration.as_secs() as i64));
+        let expires_at = token.expires_in().map(|duration| {
+            chrono::Utc::now() + chrono::Duration::seconds(duration.as_secs() as i64)
+        });
 
         let token_info = TokenInfo {
             access_token: token.access_token().secret().clone(),
@@ -105,7 +103,7 @@ impl OAuthClient {
 
     pub async fn get_valid_token(&self) -> Result<String> {
         let store = self.token_store.lock().await;
-        
+
         if let Some(ref token_info) = *store {
             // Check if token is still valid (with 5 minute buffer)
             if let Some(expires_at) = token_info.expires_at {
@@ -133,7 +131,8 @@ impl OAuthClient {
     pub async fn save_refresh_token(&self, refresh_token: &str) -> Result<()> {
         let keyring = keyring::Entry::new("prism-calendar", "google-refresh-token")
             .context("Failed to create keyring entry")?;
-        keyring.set_password(refresh_token)
+        keyring
+            .set_password(refresh_token)
             .context("Failed to save refresh token")?;
         Ok(())
     }
@@ -141,7 +140,7 @@ impl OAuthClient {
     pub async fn load_refresh_token(&self) -> Result<Option<String>> {
         let keyring = keyring::Entry::new("prism-calendar", "google-refresh-token")
             .context("Failed to create keyring entry")?;
-        
+
         match keyring.get_password() {
             Ok(token) => Ok(Some(token)),
             Err(keyring::Error::NoEntry) => Ok(None),
@@ -155,7 +154,8 @@ impl OAuthClient {
 
         let keyring = keyring::Entry::new("prism-calendar", "google-refresh-token")
             .context("Failed to create keyring entry")?;
-        keyring.delete_password()
+        keyring
+            .delete_password()
             .or_else(|e| {
                 if matches!(e, keyring::Error::NoEntry) {
                     Ok(())
@@ -168,4 +168,3 @@ impl OAuthClient {
         Ok(())
     }
 }
-

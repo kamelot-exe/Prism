@@ -3,8 +3,9 @@ mod oauth;
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use sqlx;
 
-use crate::db::get_pool;
+use crate::db::DbPool;
 use oauth::OAuthClient;
 
 pub use oauth::TokenInfo;
@@ -36,14 +37,25 @@ struct GoogleCalendarResponse {
 pub struct GmailClient {
     oauth_client: OAuthClient,
     http_client: reqwest::Client,
+    pool: DbPool,
 }
 
 impl GmailClient {
-    pub fn new(client_id: String, client_secret: String, redirect_url: String) -> Result<Self> {
+    pub fn new(client_id: String, client_secret: String, redirect_url: String, pool: DbPool) -> Result<Self> {
         Ok(GmailClient {
             oauth_client: OAuthClient::new(client_id, client_secret, redirect_url)?,
             http_client: reqwest::Client::new(),
+            pool,
         })
+    }
+
+    pub async fn get_authorization_url(&self) -> Result<(String, String)> {
+        let (url, state) = self.oauth_client.get_authorization_url()?;
+        Ok((url.to_string(), state))
+    }
+
+    pub async fn exchange_code(&self, code: String) -> Result<TokenInfo> {
+        self.oauth_client.exchange_code(code).await
     }
 
     pub async fn fetch_gmail_events(
@@ -79,18 +91,14 @@ impl GmailClient {
                 .context("Failed to fetch calendar events")?;
 
             if !response.status().is_success() {
-                let status = response.status();
-                let error_text = response.text().await.unwrap_or_default();
-                anyhow::bail!(
-                    "Google Calendar API error: {} - {}",
-                    status,
-                    error_text
-                );
+                return Err(anyhow::anyhow!(
+                    "Google API returned status {}",
+                    response.status()
+                ));
             }
 
-            let calendar_response: GoogleCalendarResponse = response
-                .json()
-                .await
+            let body = response.text().await.context("Failed to read response body")?;
+            let calendar_response: GoogleCalendarResponse = serde_json::from_str(&body)
                 .context("Failed to parse calendar response")?;
 
             all_events.extend(calendar_response.items);
@@ -110,14 +118,11 @@ impl GmailClient {
         time_max: Option<DateTime<Utc>>,
     ) -> Result<usize> {
         let events = self.fetch_gmail_events(time_min, time_max).await?;
-        let pool = get_pool()?;
 
         let mut synced_count = 0;
 
         for event in events {
-            // Parse start and end times
             let (start_time, end_time, all_day) = if let Some(dt) = &event.start.date_time {
-                // Timed event
                 let start = DateTime::parse_from_rfc3339(dt)
                     .context("Failed to parse start time")?
                     .with_timezone(&Utc);
@@ -130,7 +135,6 @@ impl GmailClient {
                 };
                 (start.to_rfc3339(), end.to_rfc3339(), false)
             } else if let Some(date) = &event.start.date {
-                // All-day event
                 let start = chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d")
                     .context("Failed to parse start date")?
                     .and_hms_opt(0, 0, 0)
@@ -149,78 +153,50 @@ impl GmailClient {
                     true,
                 )
             } else {
-                continue; // Skip events without valid time
+                continue;
             };
 
-            let title = event.summary.unwrap_or_else(|| "Untitled Event".to_string());
-            let description = event.description;
-            let external_id = event.id;
-            let source = "gmail";
-
-            // Check if event already exists
             let existing: Option<i64> = sqlx::query_scalar(
-                "SELECT id FROM events WHERE source = ? AND external_id = ?"
+                "SELECT id FROM events WHERE source = ? AND external_id = ?",
             )
-            .bind(source)
-            .bind(&external_id)
-            .fetch_optional(&pool)
-            .await?;
+            .bind("google")
+            .bind(&event.id)
+            .fetch_optional(&self.pool)
+            .await
+            .context("Failed to query existing event")?;
 
-            if let Some(existing_id) = existing {
-                // Update existing event
+            if existing.is_some() {
                 sqlx::query(
-                    r#"
-                    UPDATE events 
-                    SET title = ?, description = ?, start_time = ?, end_time = ?, all_day = ?, updated_at = CURRENT_TIMESTAMP
-                    WHERE id = ?
-                    "#
+                    "UPDATE events SET title = ?, description = ?, start_ts = ?, end_ts = ?, all_day = ?, updated_at = CURRENT_TIMESTAMP WHERE source = ? AND external_id = ?",
                 )
-                .bind(&title)
-                .bind(&description)
-                .bind(&start_time)
-                .bind(&end_time)
+                .bind(event.summary.clone().unwrap_or_else(|| "Untitled".to_string()))
+                .bind(event.description.clone())
+                .bind(start_time.clone())
+                .bind(end_time.clone())
                 .bind(if all_day { 1 } else { 0 })
-                .bind(existing_id)
-                .execute(&pool)
-                .await?;
+                .bind("google")
+                .bind(&event.id)
+                .execute(&self.pool)
+                .await
+                .context("Failed to update event")?;
             } else {
-                // Insert new event
                 sqlx::query(
-                    r#"
-                    INSERT INTO events (title, description, start_time, end_time, all_day, source, external_id)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                    "#
+                    "INSERT INTO events(title, description, start_ts, end_ts, all_day, source, external_id) VALUES (?, ?, ?, ?, ?, 'google', ?)",
                 )
-                .bind(&title)
-                .bind(&description)
-                .bind(&start_time)
-                .bind(&end_time)
+                .bind(event.summary.clone().unwrap_or_else(|| "Untitled".to_string()))
+                .bind(event.description.clone())
+                .bind(start_time.clone())
+                .bind(end_time.clone())
                 .bind(if all_day { 1 } else { 0 })
-                .bind(source)
-                .bind(&external_id)
-                .execute(&pool)
-                .await?;
+                .bind(&event.id)
+                .execute(&self.pool)
+                .await
+                .context("Failed to insert event")?;
             }
 
             synced_count += 1;
         }
 
         Ok(synced_count)
-    }
-
-    pub fn get_authorization_url(&self) -> Result<(url::Url, String)> {
-        self.oauth_client.get_authorization_url()
-    }
-
-    pub async fn exchange_code(&self, code: String) -> Result<TokenInfo> {
-        let token_info = self.oauth_client.exchange_code(code).await?;
-        self.oauth_client
-            .save_refresh_token(&token_info.refresh_token)
-            .await?;
-        Ok(token_info)
-    }
-
-    pub async fn clear_tokens(&self) -> Result<()> {
-        self.oauth_client.clear_tokens().await
     }
 }
