@@ -1,345 +1,157 @@
 <script lang="ts">
-  import { createEventDispatcher } from 'svelte';
+  import { createEventDispatcher, onMount } from 'svelte';
   import { listCategories, type Category } from '../lib/api';
-  import ThemedCard from './ThemedCard.svelte';
-  import { loadTheme, type Theme } from '../lib/theme';
-  import { settingsStore } from '../stores/settings';
 
   export let isOpen = false;
-  export let defaultDate: Date | undefined = undefined;
+  export let defaultDate: Date | null = null;
 
-  const dispatch = createEventDispatcher<{ close: void; create: { title: string; date: Date; categoryId: number | null } }>();
+  const dispatch = createEventDispatcher<{
+    close: void;
+    create: { title: string; date: Date; categoryId: number | null };
+  }>();
 
   let title = '';
-  let selectedCategoryId: number | null = null;
+  let date = '';
+  let time = '';
   let categories: Category[] = [];
-  let loading = false;
-  let theme: Theme | null = null;
+  let selectedCategory: number | null = null;
 
-  $: if (isOpen) {
-    loadData();
+  onMount(async () => {
+    categories = await listCategories().catch(() => []);
+  });
+
+  $: if (defaultDate) {
+    const iso = defaultDate.toISOString();
+    date = iso.slice(0, 10);
+    time = iso.slice(11, 16);
   }
 
-  $: if ($settingsStore.theme) {
-    loadThemeData();
-  }
+  $: colorPreview = categories.find((c) => c.id === selectedCategory)?.color_hex || '#8b5cf6';
 
-  async function loadThemeData() {
-    try {
-      const themeName = $settingsStore.theme === 'auto' 
-        ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
-        : $settingsStore.theme;
-      theme = await loadTheme(themeName as any);
-    } catch (error) {
-      console.error('Failed to load theme:', error);
-    }
-  }
-
-  async function loadData() {
-    loading = true;
-    try {
-      categories = await listCategories();
-      title = '';
-      selectedCategoryId = null;
-    } catch (error) {
-      console.error('Failed to load categories:', error);
-    } finally {
-      loading = false;
-    }
-  }
-
-  function handleClose() {
-    isOpen = false;
-    title = '';
-    selectedCategoryId = null;
+  function submit() {
+    if (!title.trim() || !date) return;
+    const eventDate = new Date(`${date}T${time || '09:00'}`);
+    dispatch('create', { title: title.trim(), date: eventDate, categoryId: selectedCategory });
     dispatch('close');
   }
 
-  function handleCreate() {
-    if (!title.trim()) return;
-
-    const date = defaultDate || new Date();
-    dispatch('create', {
-      title: title.trim(),
-      date,
-      categoryId: selectedCategoryId,
-    });
-
-    handleClose();
-  }
-
-  function handleBackdropClick(event: MouseEvent) {
-    if (event.target === event.currentTarget) {
-      handleClose();
-    }
-  }
-
-  function handleKeydown(event: KeyboardEvent) {
-    if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
-      handleCreate();
-    } else if (event.key === 'Escape') {
-      handleClose();
-    }
+  function handleCategoryChange(event: Event) {
+    const value = (event.target as HTMLSelectElement).value;
+    selectedCategory = value ? Number(value) : null;
   }
 </script>
 
 {#if isOpen}
-  <div
-    class="modal-backdrop"
-    on:click={handleBackdropClick}
-    on:keydown={handleKeydown}
-    role="dialog"
-    aria-modal="true"
-    aria-labelledby="quick-add-title"
-  >
-    {#if theme}
-      <ThemedCard theme={theme} elevation="lg" padding="md" variant="glass" class="modal-content">
-        <div class="modal-header">
-          <h2 id="quick-add-title">Quick Add Event</h2>
-          <button class="close-button" on:click={handleClose} type="button" aria-label="Close">×</button>
-        </div>
+<div class="backdrop">
+  <button
+    class="scrim"
+    type="button"
+    aria-label="Close quick add"
+    on:click={() => dispatch('close')}
+    on:keydown={(e) => e.key === 'Escape' && dispatch('close')}
+  ></button>
+  <div class="modal" role="dialog" aria-modal="true" tabindex="-1">
+    <header>
+      <div>
+        <p>Quick Add</p>
+        <h2>Create event in seconds</h2>
+      </div>
+      <button class="ghost" on:click={() => dispatch('close')}>✕</button>
+    </header>
 
-        {#if loading}
-          <div class="loading">Loading...</div>
-        {:else}
-          <div class="modal-body">
-            <div class="form-group">
-              <input
-                type="text"
-                bind:value={title}
-                placeholder="What's happening?"
-                class="quick-input"
-                autofocus
-              />
-            </div>
+    <div class="grid">
+      <label>
+        <span>Title</span>
+        <input type="text" placeholder="Standup with product" bind:value={title} />
+      </label>
+      <label>
+        <span>Date</span>
+        <input type="date" bind:value={date} />
+      </label>
+      <label>
+        <span>Time</span>
+        <input type="time" bind:value={time} />
+      </label>
+      <label>
+        <span>Category</span>
+        <select on:change={handleCategoryChange}>
+          <option value="">No category</option>
+          {#each categories as category}
+            <option value={category.id}>{category.name}</option>
+          {/each}
+        </select>
+      </label>
+      <div class="color-preview" aria-label="Color preview">
+        <span>Color preview</span>
+        <div class="swatch" style={`background:${colorPreview}`}></div>
+      </div>
+    </div>
 
-            <div class="category-pills">
-              <button
-                class="category-pill"
-                class:active={selectedCategoryId === null}
-                on:click={() => selectedCategoryId = null}
-                type="button"
-              >
-                None
-              </button>
-              {#each categories as category}
-                <button
-                  class="category-pill"
-                  class:active={selectedCategoryId === category.id}
-                  style:background={selectedCategoryId === category.id ? category.color : 'transparent'}
-                  style:border-color={category.color}
-                  style:color={selectedCategoryId === category.id ? 'white' : category.color}
-                  on:click={() => selectedCategoryId = category.id}
-                  type="button"
-                >
-                  {category.name}
-                </button>
-              {/each}
-            </div>
-          </div>
-
-          <div class="modal-footer">
-            <button class="button button-secondary" on:click={handleClose} type="button">
-              Cancel
-            </button>
-            <button
-              class="button button-primary"
-              on:click={handleCreate}
-              disabled={!title.trim()}
-              type="button"
-            >
-              Create
-            </button>
-          </div>
-        {/if}
-      </ThemedCard>
-    {/if}
+    <footer>
+      <button class="ghost" on:click={() => dispatch('close')}>Cancel</button>
+      <button class="primary" on:click={submit}>Confirm</button>
+    </footer>
   </div>
+</div>
 {/if}
 
 <style>
-  .modal-backdrop {
+  .backdrop {
     position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: rgba(0, 0, 0, 0.5);
+    inset: 0;
+    background: var(--modal-backdrop, rgba(0,0,0,0.45));
     display: flex;
     align-items: center;
     justify-content: center;
-    z-index: 1000;
     padding: 2rem;
-    animation: fadeIn 0.15s;
+    z-index: 30;
   }
-
-  @keyframes fadeIn {
-    from {
-      opacity: 0;
-    }
-    to {
-      opacity: 1;
-    }
-  }
-
-  .modal-content {
-    max-width: 500px;
-    width: 100%;
-    animation: slideUp 0.2s var(--animation-easing, ease);
-  }
-
-  @keyframes slideUp {
-    from {
-      transform: translateY(10px);
-      opacity: 0;
-    }
-    to {
-      transform: translateY(0);
-      opacity: 1;
-    }
-  }
-
-  .modal-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 1.5rem;
-  }
-
-  .modal-header h2 {
-    margin: 0;
-    font-size: 1.25rem;
-    font-weight: var(--font-weight-semibold, 600);
-    color: var(--text-primary);
-  }
-
-  .close-button {
-    background: none;
-    border: none;
-    font-size: 1.5rem;
-    line-height: 1;
-    color: var(--text-secondary);
-    cursor: pointer;
-    padding: 0;
-    width: 32px;
-    height: 32px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: var(--border-radius-sm, 0.375rem);
-    transition: all 0.2s;
-  }
-
-  .close-button:hover {
-    background: var(--bg-hover);
-    color: var(--text-primary);
-  }
-
-  .modal-body {
-    display: flex;
-    flex-direction: column;
-    gap: 1.5rem;
-  }
-
-  .form-group {
-    display: flex;
-    flex-direction: column;
-  }
-
-  .quick-input {
-    width: 100%;
-    padding: 1rem;
-    border: 2px solid var(--border-color);
-    border-radius: var(--border-radius-md, 0.5rem);
-    background: var(--bg-secondary);
-    color: var(--text-primary);
-    font-size: 1.125rem;
-    font-family: var(--font-family);
-    transition: all 0.2s;
-  }
-
-  .quick-input:focus {
-    outline: none;
-    border-color: var(--accent-color);
-    box-shadow: 0 0 0 3px var(--accent-light, rgba(59, 130, 246, 0.1));
-  }
-
-  .category-pills {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem;
-  }
-
-  .category-pill {
-    padding: 0.5rem 1rem;
-    border: 2px solid var(--border-color);
-    border-radius: var(--border-radius-lg, 0.75rem);
-    background: var(--bg-secondary);
-    color: var(--text-primary);
-    font-size: 0.875rem;
-    font-weight: var(--font-weight-medium, 500);
-    cursor: pointer;
-    transition: all 0.2s;
-  }
-
-  .category-pill:hover {
-    transform: translateY(-1px);
-    box-shadow: var(--shadow-sm);
-  }
-
-  .category-pill.active {
-    font-weight: var(--font-weight-semibold, 600);
-    box-shadow: var(--shadow-md);
-  }
-
-  .modal-footer {
-    display: flex;
-    justify-content: flex-end;
+  .scrim { position: absolute; inset: 0; background: transparent; border: none; padding: 0; z-index: 0; }
+  .modal {
+    position: relative;
+    z-index: 1;
+    width: min(700px, 100%);
+    background: var(--modal-bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--modal-shadow);
+    padding: 1.25rem;
+    display: grid;
     gap: 1rem;
-    margin-top: 1.5rem;
-    padding-top: 1.5rem;
-    border-top: 1px solid var(--border-color);
+    color: var(--text);
   }
+  header { display: flex; align-items: center; justify-content: space-between; }
+  header p { margin: 0; color: var(--text-muted); font-size: 0.9rem; }
+  header h2 { margin: 0; font-size: 1.4rem; }
 
-  .button {
-    padding: 0.75rem 1.5rem;
-    border: none;
-    border-radius: var(--border-radius-md, 0.5rem);
-    font-size: 1rem;
-    font-weight: var(--font-weight-medium, 500);
-    cursor: pointer;
-    transition: all var(--animation-duration, 0.3s) var(--animation-easing, ease);
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
   }
-
-  .button-primary {
-    background: var(--accent-color);
-    color: white;
-  }
-
-  .button-primary:hover:not(:disabled) {
-    background: var(--accent-hover);
-    transform: translateY(-1px);
-    box-shadow: var(--shadow-md);
-  }
-
-  .button-secondary {
-    background: var(--bg-hover);
-    color: var(--text-primary);
-  }
-
-  .button-secondary:hover {
+  label { display: grid; gap: 0.35rem; font-size: 0.95rem; color: var(--text-secondary); }
+  input, select {
+    padding: 0.7rem 0.85rem;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border);
     background: var(--bg-secondary);
+    color: var(--text);
   }
-
-  .button:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
+  .color-preview .swatch {
+    height: 44px;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border);
   }
-
-  .loading {
-    text-align: center;
-    padding: 2rem;
-    color: var(--text-secondary);
+  footer { display: flex; justify-content: flex-end; gap: 0.75rem; }
+  .primary, .ghost {
+    padding: 0.75rem 1.1rem;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border);
+    cursor: pointer;
+    background: var(--button-bg);
+    color: var(--button-text);
   }
+  .primary:hover { background: var(--button-hover); }
+  .ghost { background: transparent; color: var(--text); }
+  .ghost:hover { background: var(--bg-hover); }
 </style>
-
