@@ -1,0 +1,13 @@
+{
+  "permission": [
+    {
+      "identifier": "asset:default",
+      "description": "Allow asset access",
+      "scope": {
+        "allow": [
+          { "asset": { "allow": true } }
+        ]
+      }
+    }
+  ]
+}

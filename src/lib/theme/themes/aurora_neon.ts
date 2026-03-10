@@ -1,0 +1,21 @@
+export default {
+  name: 'Aurora Neon',
+  tokens: {
+    '--bg': '#070B1A',
+    '--bg-gradient': 'linear-gradient(135deg, #071328 0%, #0F1A35 50%, #091123 100%)',
+    '--surface-0': 'rgba(255,255,255,0.05)',
+    '--surface-1': 'rgba(255,255,255,0.03)',
+    '--text': '#E8EEFF',
+    '--text-muted': 'rgba(230,240,255,0.65)',
+    '--accent': '#62d2ff',
+    '--accent-2': '#9b6bff',
+    '--accent-3': '#4af7cb',
+    '--border': 'rgba(255,255,255,0.08)',
+    '--radius-sm': '8px',
+    '--radius-md': '14px',
+    '--radius-lg': '22px',
+    '--shadow-sm': '0 0 22px rgba(98,210,255,0.25)',
+    '--shadow-md': '0 0 32px rgba(155,107,255,0.18)',
+    '--blur': '20px',
+  },
+};

@@ -1,100 +1,133 @@
 import { writable, get } from 'svelte/store';
-import { invoke } from '@tauri-apps/api/core';
+import { applyTheme } from '../lib/theme/applyTheme';
+import { defaultTokens, type TokenMap } from '../lib/theme/defaultTokens';
+import { themeRegistry } from '../lib/theme/themeRegistry';
+import { safeInvoke } from '../lib/safeInvoke';
+import { toastStore } from './toastStore';
+import { isTauriEnvironment } from '../lib/safeInvoke';
+import type { Goal, WeeklyPlan } from '../lib/productivity/goals';
 
-export type ThemeName = 'light' | 'dark' | 'glassmorphism' | 'avant-garde' | 'brutalism' | 'yeezy-minimal' | 'auto';
+type ThemeName = string;
+
+export interface ProductivitySettings {
+  pomodoroFocus: number;
+  pomodoroBreak: number;
+  pomodoroAutoStart?: boolean;
+  quickAddDuration: number;
+  todoAutoRoll: boolean;
+  workDayStart?: string;
+  workDayEnd?: string;
+  goals?: Goal[];
+  weeklyPlan?: Record<string, WeeklyPlan>;
+  weeklyCarry?: boolean;
+}
 
 export interface Settings {
   theme: ThemeName;
+  currentTheme: ThemeName;
   firstDayOfWeek: 'monday' | 'sunday';
   timeFormat: '12h' | '24h';
   userCategoryColors?: Record<string, string>;
+  productivity: ProductivitySettings;
 }
 
 const defaultSettings: Settings = {
-  theme: 'light',
+  theme: 'base',
+  currentTheme: 'base',
   firstDayOfWeek: 'monday',
   timeFormat: '24h',
   userCategoryColors: {},
+  productivity: {
+    pomodoroFocus: 25,
+    pomodoroBreak: 5,
+    pomodoroAutoStart: true,
+    quickAddDuration: 60,
+    todoAutoRoll: true,
+    workDayStart: "09:00",
+    workDayEnd: "18:00",
+    goals: [],
+    weeklyPlan: {},
+    weeklyCarry: false,
+  },
+};
+
+const resolveThemeTokens = (themeName: ThemeName): TokenMap => {
+  const theme = themeRegistry.find((entry) => entry.name === themeName);
+  return { ...defaultTokens, ...(theme?.tokens ?? {}) };
 };
 
 function createSettingsStore() {
   const { subscribe, set, update } = writable<Settings>(defaultSettings);
+  let initialized = false;
 
-  // Load settings from database on initialization
   const loadSettings = async () => {
     try {
-      // TODO: Implement get_settings Tauri command
-      // const settings = await invoke<Settings>('get_settings');
-      // set(settings);
+      const settings =
+        (await safeInvoke<Settings>('settings_get').catch(() => defaultSettings)) || defaultSettings;
+      const merged = {
+        ...defaultSettings,
+        ...(settings || {}),
+        productivity: { ...defaultSettings.productivity, ...(settings?.productivity || {}) },
+      };
+      set(merged);
     } catch (error) {
       console.error('Failed to load settings:', error);
-      // Use defaults if loading fails
+      toastStore.showError('Could not load settings');
       set(defaultSettings);
     }
   };
 
-  // Save settings to database
-  const saveSettings = async (newSettings: Partial<Settings>) => {
+  const saveSettings = async (newSettings: Partial<Settings> & { productivity?: Partial<ProductivitySettings> }) => {
     try {
       update((current) => {
-        const updated = { ...current, ...newSettings };
-        // TODO: Implement save_settings Tauri command
-        // invoke('save_settings', { settings: updated });
+        const updated: Settings = {
+          ...current,
+          ...newSettings,
+          productivity: {
+            ...current.productivity,
+            ...(newSettings.productivity || {}),
+          },
+        };
+        safeInvoke('settings_save', { settings: updated }).catch((error) => {
+          console.error('Failed to persist settings:', error);
+          toastStore.showError('Could not save settings');
+        });
         return updated;
       });
     } catch (error) {
       console.error('Failed to save settings:', error);
+      toastStore.showError('Could not save settings');
     }
   };
 
-  // Theme switcher
+  const switchTheme = async (theme: ThemeName) => {
+    applyTheme(resolveThemeTokens(theme));
+  };
+
   const setTheme = async (theme: ThemeName) => {
-    await saveSettings({ theme });
-    await applyTheme(theme);
+    await switchTheme(theme);
+    await saveSettings({ theme, currentTheme: theme });
   };
 
-  // Apply theme to document
-  const applyTheme = async (theme: ThemeName) => {
-    if (typeof document === 'undefined') return;
-
-    const root = document.documentElement;
-    let themeToApply: string;
-    
-    if (theme === 'auto') {
-      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-      themeToApply = prefersDark ? 'dark' : 'light';
-    } else {
-      themeToApply = theme;
-    }
-
-    // Load and apply theme
-    try {
-      const { loadTheme, applyTheme: applyThemeStyles } = await import('../lib/theme');
-      const themeData = await loadTheme(themeToApply as any);
-      applyThemeStyles(themeData);
-    } catch (error) {
-      console.error('Failed to load theme:', error);
-      // Fallback to simple data attribute
-      root.setAttribute('data-theme', themeToApply);
-    }
-  };
-
-  // Initialize theme on store creation
-  if (typeof document !== 'undefined') {
-    loadSettings().then(() => {
-      subscribe((settings) => {
-        applyTheme(settings.theme);
-      });
+  const init = () => {
+    if (initialized || typeof document === 'undefined') return;
+    initialized = true;
+    subscribe((settings) => {
+      applyTheme(resolveThemeTokens(settings.theme));
     });
-  }
+    if (isTauriEnvironment()) {
+      loadSettings();
+    } else {
+      set(defaultSettings);
+      applyTheme(resolveThemeTokens(defaultSettings.theme));
+    }
+  };
 
-  // Get user color for category (override category color if set)
   const getCategoryColor = (categoryId: number, defaultColor: string): string => {
     const settings = get(settingsStore);
     return settings.userCategoryColors?.[categoryId.toString()] || defaultColor;
   };
 
-  // Set user color for category
   const setCategoryColor = async (categoryId: number, color: string) => {
     update((current) => {
       const userCategoryColors = current.userCategoryColors || {};
@@ -111,11 +144,11 @@ function createSettingsStore() {
     loadSettings,
     saveSettings,
     setTheme,
-    applyTheme,
+    applyTheme: switchTheme,
     getCategoryColor,
     setCategoryColor,
+    init,
   };
 }
 
 export const settingsStore = createSettingsStore();
-

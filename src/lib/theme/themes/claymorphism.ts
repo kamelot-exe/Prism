@@ -1,0 +1,20 @@
+export default {
+  name: 'Claymorphism Soft',
+  tokens: {
+    '--bg': '#f2f0ea',
+    '--bg-gradient': 'linear-gradient(180deg,#f7f4ef,#ece9e2)',
+    '--surface-0': '#ffffff',
+    '--surface-1': '#f8f6f2',
+    '--text': '#2b2b2b',
+    '--text-muted': '#6a6761',
+    '--accent': '#c6b1ff',
+    '--accent-2': '#ffe0b2',
+    '--accent-3': '#b4eacf',
+    '--border': 'rgba(0,0,0,0.06)',
+    '--radius-sm': '14px',
+    '--radius-md': '22px',
+    '--radius-lg': '28px',
+    '--shadow-sm': '0 12px 30px rgba(0,0,0,0.10), 0 4px 10px rgba(0,0,0,0.06)',
+    '--shadow-md': '0 18px 35px rgba(0,0,0,0.12), 0 8px 18px rgba(0,0,0,0.08)',
+  },
+};

@@ -1,0 +1,20 @@
+{
+  "permission": [
+    {
+      "identifier": "core:default",
+      "description": "Default core window controls",
+      "scope": {
+        "allow": [
+          {
+            "windows": {
+              "allow-new-windows": true,
+              "allow-close": true,
+              "allow-resize": true,
+              "allow-move": true
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

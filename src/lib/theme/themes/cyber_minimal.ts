@@ -1,0 +1,20 @@
+export default {
+  name: 'Cyber Minimal Grid',
+  tokens: {
+    '--bg': '#f7f8fa',
+    '--bg-alt': '#ffffff',
+    '--surface-0': '#ffffff',
+    '--surface-1': '#fafafa',
+    '--text': '#0d0d0d',
+    '--text-muted': '#505050',
+    '--accent': '#00f59b',
+    '--accent-2': '#0098ff',
+    '--accent-danger': '#ff3b30',
+    '--border': 'rgba(0,0,0,0.12)',
+    '--grid-line': 'rgba(0,0,0,0.08)',
+    '--radius-sm': '4px',
+    '--radius-md': '6px',
+    '--shadow-sm': '0 2px 7px rgba(0,0,0,0.05)',
+    '--shadow-md': '0 4px 18px rgba(0,0,0,0.06)',
+  },
+};

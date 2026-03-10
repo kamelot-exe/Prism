@@ -1,0 +1,18 @@
+{
+  "permission": [
+    {
+      "identifier": "notification:default",
+      "description": "Allow notifications",
+      "scope": {
+        "allow": [
+          {
+            "notification": {
+              "allow": true,
+              "permissions": ["default"]
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

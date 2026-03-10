@@ -2,6 +2,7 @@ mod oauth;
 
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
+use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use sqlx;
 
@@ -11,10 +12,12 @@ use oauth::OAuthClient;
 pub use oauth::TokenInfo;
 
 const GOOGLE_CALENDAR_API: &str = "https://www.googleapis.com/calendar/v3";
+const LAST_SYNC_SETTING_KEY: &str = "gmail_last_sync";
 
 #[derive(Debug, Serialize, Deserialize)]
 struct GoogleCalendarEvent {
     id: String,
+    status: Option<String>,
     summary: Option<String>,
     description: Option<String>,
     start: GoogleEventDateTime,
@@ -42,6 +45,10 @@ pub struct GmailClient {
 
 impl GmailClient {
     pub fn new(client_id: String, client_secret: String, redirect_url: String, pool: DbPool) -> Result<Self> {
+        if client_id.trim().is_empty() || client_secret.trim().is_empty() {
+            anyhow::bail!("Google client credentials are missing");
+        }
+
         Ok(GmailClient {
             oauth_client: OAuthClient::new(client_id, client_secret, redirect_url)?,
             http_client: reqwest::Client::new(),
@@ -49,7 +56,7 @@ impl GmailClient {
         })
     }
 
-    pub async fn get_authorization_url(&self) -> Result<(String, String)> {
+    pub fn get_authorization_url(&self) -> Result<(String, String)> {
         let (url, state) = self.oauth_client.get_authorization_url()?;
         Ok((url.to_string(), state))
     }
@@ -58,7 +65,7 @@ impl GmailClient {
         self.oauth_client.exchange_code(code).await
     }
 
-    pub async fn fetch_gmail_events(
+    async fn fetch_gmail_events(
         &self,
         time_min: Option<DateTime<Utc>>,
         time_max: Option<DateTime<Utc>>,
@@ -91,6 +98,11 @@ impl GmailClient {
                 .context("Failed to fetch calendar events")?;
 
             if !response.status().is_success() {
+                if matches!(response.status(), StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN) {
+                    // Clear tokens so the app can prompt the user to reconnect
+                    let _ = self.clear_tokens().await;
+                    anyhow::bail!("Google authorization expired. Please reconnect your account.");
+                }
                 return Err(anyhow::anyhow!(
                     "Google API returned status {}",
                     response.status()
@@ -122,6 +134,17 @@ impl GmailClient {
         let mut synced_count = 0;
 
         for event in events {
+            if matches!(event.status.as_deref(), Some("cancelled")) {
+                // Remove cancelled events from the local store
+                sqlx::query("DELETE FROM events WHERE source = ? AND external_id = ?")
+                    .bind("google")
+                    .bind(&event.id)
+                    .execute(&self.pool)
+                    .await
+                    .context("Failed to remove cancelled event")?;
+                continue;
+            }
+
             let (start_time, end_time, all_day) = if let Some(dt) = &event.start.date_time {
                 let start = DateTime::parse_from_rfc3339(dt)
                     .context("Failed to parse start time")?
@@ -197,6 +220,36 @@ impl GmailClient {
             synced_count += 1;
         }
 
+        // Persist last successful sync timestamp
+        self.set_last_sync(Utc::now()).await?;
+
         Ok(synced_count)
+    }
+
+    pub async fn has_tokens(&self) -> Result<bool> {
+        self.oauth_client.has_refresh_token().await
+    }
+
+    pub async fn clear_tokens(&self) -> Result<()> {
+        self.oauth_client.clear_tokens().await
+    }
+
+    pub async fn set_last_sync(&self, at: DateTime<Utc>) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO settings(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        )
+        .bind(LAST_SYNC_SETTING_KEY)
+        .bind(at.to_rfc3339())
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn get_last_sync(&self) -> Result<Option<String>> {
+        let value: Option<String> = sqlx::query_scalar("SELECT value FROM settings WHERE key = ?")
+            .bind(LAST_SYNC_SETTING_KEY)
+            .fetch_optional(&self.pool)
+            .await?;
+        Ok(value)
     }
 }

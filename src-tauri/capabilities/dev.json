@@ -1,0 +1,10 @@
+{
+  "identifier": "dev",
+  "description": "Development capabilities",
+  "local": true,
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "notification:default"
+  ]
+}

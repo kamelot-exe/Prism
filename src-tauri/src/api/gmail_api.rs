@@ -1,13 +1,16 @@
 use axum::{extract::Query, response::Html, routing::get, Router};
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::Arc;
-use std::sync::OnceLock;
-use tokio::sync::oneshot;
-use tokio::sync::Mutex;
+use std::sync::{Arc, OnceLock};
+use tokio::sync::{Mutex, oneshot};
 use tauri::State;
 
-use crate::{db::DbPool, gmail::{GmailClient, TokenInfo}};
+use crate::{
+    db::DbPool,
+    error::AppError,
+    gmail::{GmailClient, TokenInfo},
+};
 
 // Channel for passing OAuth code from callback to main thread
 static OAUTH_CODE_SENDER: OnceLock<Mutex<Option<oneshot::Sender<String>>>> = OnceLock::new();
@@ -15,7 +18,33 @@ static OAUTH_CODE_SENDER: OnceLock<Mutex<Option<oneshot::Sender<String>>>> = Onc
 // Store Gmail client in app state
 static GMAIL_CLIENT: OnceLock<Mutex<Option<Arc<GmailClient>>>> = OnceLock::new();
 
-async fn get_gmail_client(pool: &DbPool) -> Result<Arc<GmailClient>, String> {
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GmailStatus {
+    pub connected: bool,
+    pub last_sync: Option<String>,
+    pub email: Option<String>,
+}
+
+async fn wait_for_oauth_code(timeout_secs: u64) -> Result<String, AppError> {
+    let (tx, rx) = oneshot::channel::<String>();
+
+    let sender_mutex = OAUTH_CODE_SENDER.get_or_init(|| Mutex::new(None));
+    let mut sender_opt = sender_mutex.lock().await;
+    *sender_opt = Some(tx);
+    drop(sender_opt);
+
+    tokio::select! {
+        result = rx => {
+            result.map_err(|e| AppError::OAuth(format!("Failed to receive OAuth code: {}", e)))
+        }
+        _ = tokio::time::sleep(tokio::time::Duration::from_secs(timeout_secs)) => {
+            Err(AppError::OAuth("Timed out waiting for OAuth callback".to_string()))
+        }
+    }
+}
+
+async fn get_gmail_client(pool: &DbPool) -> Result<Arc<GmailClient>, AppError> {
     let client_mutex = GMAIL_CLIENT.get_or_init(|| Mutex::new(None));
     let mut client = client_mutex.lock().await;
 
@@ -23,12 +52,29 @@ async fn get_gmail_client(pool: &DbPool) -> Result<Arc<GmailClient>, String> {
         return Ok(c.clone());
     }
 
-    let client_id = std::env::var("GOOGLE_CLIENT_ID").unwrap_or_else(|_| "YOUR_CLIENT_ID".to_string());
-    let client_secret = std::env::var("GOOGLE_CLIENT_SECRET").unwrap_or_else(|_| "YOUR_CLIENT_SECRET".to_string());
+    let client_id = std::env::var("GOOGLE_CLIENT_ID")
+        .map_err(|_| AppError::Config("GOOGLE_CLIENT_ID is not set".to_string()))?
+        .trim()
+        .to_owned();
+    if client_id.is_empty() {
+        return Err(AppError::Config(
+            "GOOGLE_CLIENT_ID is set but empty".to_string(),
+        ));
+    }
+
+    let client_secret = std::env::var("GOOGLE_CLIENT_SECRET")
+        .map_err(|_| AppError::Config("GOOGLE_CLIENT_SECRET is not set".to_string()))?
+        .trim()
+        .to_owned();
+    if client_secret.is_empty() {
+        return Err(AppError::Config(
+            "GOOGLE_CLIENT_SECRET is set but empty".to_string(),
+        ));
+    }
     let redirect_url = "http://localhost:8080/oauth/callback".to_string();
 
     let gmail_client = GmailClient::new(client_id, client_secret, redirect_url, pool.clone())
-        .map_err(|e| format!("Failed to create Gmail client: {}", e))?;
+        .map_err(|e| AppError::OAuth(e.to_string()))?;
 
     let client_arc = Arc::new(gmail_client);
     *client = Some(client_arc.clone());
@@ -53,11 +99,11 @@ async fn oauth_callback_handler(Query(params): Query<HashMap<String, String>>) -
         }
 
         Html(
-            r#"<!DOCTYPE html><html><head><title>Authorization Successful</title><style>body { font-family: Arial, sans-serif; text-align: center; padding: 50px; } .success { color: green; font-size: 24px; }</style></head><body><div class="success">✓ Authorization successful! You can close this window.</div><script>setTimeout(() => window.close(), 2000);</script></body></html>"#.to_string(),
+            r#"<!DOCTYPE html><html><head><title>Authorization Successful</title><style>body { font-family: Arial, sans-serif; text-align: center; padding: 50px; } .success { color: green; font-size: 24px; }</style></head><body><div class="success">Authorization successful! You can close this window.</div><script>setTimeout(() => window.close(), 2000);</script></body></html>"#.to_string(),
         )
     } else if let Some(error) = params.get("error") {
         Html(format!(
-            r#"<!DOCTYPE html><html><head><title>Authorization Failed</title><style>body {{ font-family: Arial, sans-serif; text-align: center; padding: 50px; }} .error {{ color: red; font-size: 24px; }}</style></head><body><div class="error">✗ Authorization failed: {}</div></body></html>"#,
+            r#"<!DOCTYPE html><html><head><title>Authorization Failed</title><style>body {{ font-family: Arial, sans-serif; text-align: center; padding: 50px; }} .error {{ color: red; font-size: 24px; }}</style></head><body><div class="error">Authorization failed: {}</div></body></html>"#,
             error
         ))
     } else {
@@ -68,13 +114,25 @@ async fn oauth_callback_handler(Query(params): Query<HashMap<String, String>>) -
     }
 }
 
+fn parse_rfc3339_datetime(
+    value: Option<String>,
+    label: &str,
+) -> Result<Option<DateTime<Utc>>, AppError> {
+    value
+        .map(|raw| {
+            DateTime::parse_from_rfc3339(&raw)
+                .map(|dt| dt.with_timezone(&Utc))
+                .map_err(|e| AppError::Validation(format!("Invalid {} format: {}", label, e)))
+        })
+        .transpose()
+}
+
 #[tauri::command]
-pub async fn gmail_get_auth_url(pool: State<'_, DbPool>) -> Result<AuthUrlResponse, String> {
+pub async fn gmail_get_auth_url(pool: State<'_, DbPool>) -> Result<AuthUrlResponse, AppError> {
     let client = get_gmail_client(&pool).await?;
     let (url, state) = client
         .get_authorization_url()
-        .await
-        .map_err(|e| format!("Failed to get authorization URL: {}", e))?;
+        .map_err(|e| AppError::OAuth(e.to_string()))?;
 
     tokio::spawn(async move {
         let app = Router::new().route("/oauth/callback", get(oauth_callback_handler));
@@ -106,47 +164,88 @@ pub async fn gmail_get_auth_url(pool: State<'_, DbPool>) -> Result<AuthUrlRespon
 }
 
 #[tauri::command]
-pub async fn gmail_wait_for_callback() -> Result<String, String> {
-    let (tx, rx) = oneshot::channel::<String>();
+pub async fn gmail_wait_for_callback() -> Result<String, AppError> {
+    wait_for_oauth_code(30).await
+}
 
-    let sender_mutex = OAUTH_CODE_SENDER.get_or_init(|| Mutex::new(None));
-    let mut sender_opt = sender_mutex.lock().await;
-    *sender_opt = Some(tx);
-    drop(sender_opt);
+#[tauri::command]
+pub async fn gmail_exchange_code(
+    code: Option<String>,
+    _state: Option<String>,
+    pool: State<'_, DbPool>,
+) -> Result<TokenInfo, AppError> {
+    let auth_code = match code.filter(|c| !c.is_empty()) {
+        Some(code) => code,
+        None => wait_for_oauth_code(30).await?,
+    };
 
-    tokio::select! {
-        result = rx => {
-            result.map_err(|e| format!("Failed to receive OAuth code: {}", e))
-        }
-        _ = tokio::time::sleep(tokio::time::Duration::from_secs(30)) => {
-            Err("Timed out waiting for OAuth callback".to_string())
-        }
+    let client = get_gmail_client(&pool).await?;
+    client
+        .exchange_code(auth_code)
+        .await
+        .map_err(|e| AppError::OAuth(format!("Failed to exchange code: {}", e)))
+}
+
+#[tauri::command]
+pub async fn gmail_sync(
+    pool: State<'_, DbPool>,
+    perform_sync: Option<bool>,
+    time_min: Option<String>,
+    time_max: Option<String>,
+) -> Result<GmailStatus, AppError> {
+    let client = get_gmail_client(&pool).await?;
+    let parsed_min = parse_rfc3339_datetime(time_min, "time_min")?;
+    let parsed_max = parse_rfc3339_datetime(time_max, "time_max")?;
+    if perform_sync.unwrap_or(true) {
+        client
+            .sync_to_database(parsed_min, parsed_max)
+            .await
+            .map_err(|e| AppError::Other(format!("Failed to sync Gmail: {}", e)))?;
     }
-}
 
-#[tauri::command]
-pub async fn gmail_exchange_code(code: String, _state: String, pool: State<'_, DbPool>) -> Result<TokenInfo, String> {
-    let client = get_gmail_client(&pool).await?;
-    client
-        .exchange_code(code)
+    let connected = client
+        .has_tokens()
         .await
-        .map_err(|e| format!("Failed to exchange code: {}", e))
-}
-
-#[tauri::command]
-pub async fn sync_gmail(pool: State<'_, DbPool>) -> Result<usize, String> {
-    let client = get_gmail_client(&pool).await?;
-    client
-        .sync_to_database(None, None)
+        .map_err(|e| AppError::OAuth(e.to_string()))?;
+    let last_sync = client
+        .get_last_sync()
         .await
-        .map_err(|e| format!("Failed to sync Gmail: {}", e))
+        .map_err(|e| AppError::Other(e.to_string()))?;
+
+    Ok(GmailStatus {
+        connected,
+        last_sync,
+        email: None,
+    })
 }
 
 #[tauri::command]
-pub async fn gmail_disconnect() -> Result<(), String> {
+pub async fn gmail_status(pool: State<'_, DbPool>) -> Result<GmailStatus, AppError> {
+    gmail_sync(pool, Some(false), None, None).await
+}
+
+#[tauri::command]
+pub async fn gmail_disconnect(pool: State<'_, DbPool>) -> Result<(), AppError> {
     if let Some(mutex) = GMAIL_CLIENT.get() {
         let mut guard = mutex.lock().await;
+        if let Some(client) = guard.as_ref() {
+            client
+                .clear_tokens()
+                .await
+                .map_err(|e| AppError::OAuth(e.to_string()))?;
+        }
         *guard = None;
+    } else {
+        match get_gmail_client(&pool).await {
+            Ok(client) => {
+                client
+                    .clear_tokens()
+                    .await
+                    .map_err(|e| AppError::OAuth(e.to_string()))?;
+            }
+            Err(AppError::Config(_)) => return Ok(()),
+            Err(err) => return Err(err),
+        }
     }
     Ok(())
 }

@@ -1,389 +1,462 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import { getEvents, type Event } from '../../lib/api';
-  import { settingsStore } from '../../stores/settings';
-  import EventModal from '../EventModal.svelte';
-  import QuickAddModal from '../QuickAddModal.svelte';
-  import ThemedCard from '../ThemedCard.svelte';
-  import { loadTheme, type Theme } from '../../lib/theme';
+  import { onMount, onDestroy, createEventDispatcher } from 'svelte';
+  import { get } from 'svelte/store';
+  import type { Event } from '../../lib/api';
+  import { eventsStore } from '../../stores/eventsStore';
+  import { hiddenCategoryIds } from '../../stores/categoryStore';
+  import { normalizeDate } from '../../lib/dates/safeDate';
+  import WeekReviewPanel from '../productivity/WeekReviewPanel.svelte';
+  import { tasksStore } from '../../stores/tasksStore';
+  import { plannedEventsStore } from '../../stores/plannedEventsStore';
+  import { toastStore } from '../../stores/toastStore';
+  import { autoScheduleTask } from '../../lib/scheduler/autoScheduler';
+  import { uiNavigationStore } from '../../stores/uiNavigationStore';
+
+  export let currentDate: Date | undefined = new Date();
+  export let searchQuery = '';
+
+  const dispatch = createEventDispatcher<{ selectEvent: Event; slot: Date }>();
 
   let events: Event[] = [];
-  let currentDate = new Date();
   let loading = false;
-  let error: string | null = null;
-  let selectedEvent: Event | null = null;
-  let isEventModalOpen = false;
-  let isQuickAddOpen = false;
-  let quickAddDate: Date | undefined;
-  let theme: Theme | null = null;
+  let rangeStart: Date;
+  let rangeEnd: Date;
+  let unsubscribe: (() => void) | null = null;
+  let hiddenIds = new Set<number>();
+  let safeDate = new Date();
+  $: safeDate = normalizeDate(currentDate);
 
-  $: if ($settingsStore.theme) {
-    loadThemeData();
+  function startOfWeek(date: Date) {
+    const d = new Date(date);
+    const day = d.getDay();
+    const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+    return new Date(d.setDate(diff));
   }
 
-  async function loadThemeData() {
-    try {
-      const themeName = $settingsStore.theme === 'auto' 
-        ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
-        : $settingsStore.theme;
-      theme = await loadTheme(themeName as any);
-    } catch (error) {
-      console.error('Failed to load theme:', error);
-    }
-  }
-
-  const hours = Array.from({ length: 24 }, (_, i) => i);
-
-  function getWeekDates(date: Date): Date[] {
-    const week: Date[] = [];
-    const dayOfWeek = date.getDay();
-    const monday = new Date(date);
-    monday.setDate(date.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1));
-    
-    for (let i = 0; i < 7; i++) {
-      const day = new Date(monday);
-      day.setDate(monday.getDate() + i);
-      week.push(day);
-    }
-    return week;
-  }
-
-  $: weekDates = getWeekDates(currentDate);
-
-  onMount(async () => {
-    await loadEvents();
+  $: weekStart = startOfWeek(safeDate);
+  $: weekDaysDates = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(weekStart);
+    d.setDate(weekStart.getDate() + i);
+    return d;
   });
+  $: plannerOverview = weekDaysDates.map((day) => {
+    const blocks = plannedEventsStore.blocksForDate(day);
+    const totalMinutes = blocks.reduce((sum, block) => {
+      const duration = (block.end.getTime() - block.start.getTime()) / (1000 * 60);
+      return sum + duration;
+    }, 0);
+    return {
+      day,
+      blocksCount: blocks.length,
+      totalMinutes,
+    };
+  });
+
+  $: filtered = events
+    .filter((event) => event.title.toLowerCase().includes(searchQuery.toLowerCase()))
+    .filter((event) => {
+      if (!event.category_id) return true;
+      return !hiddenIds.has(event.category_id);
+    });
+
+  function handleAutoScheduleSelectedDay() {
+    window.dispatchEvent(new CustomEvent('auto-schedule-selected-day'));
+  }
+
+  async function handleAutoScheduleWeek() {
+    const allTasks = get(tasksStore);
+    const weekDateTimes = weekDaysDates.map((d) => normalizeDate(d).getTime());
+    const urgentHighTasks = allTasks.filter((task) => {
+      if (task.done) return false;
+      if (!task.date) return false;
+      const taskDateTime = normalizeDate(task.date).getTime();
+      if (!weekDateTimes.includes(taskDateTime)) return false;
+      return task.priority === 'urgent' || task.priority === 'high';
+    });
+
+    if (urgentHighTasks.length === 0) {
+      toastStore.showInfo('No urgent or high priority tasks for this week');
+      return;
+    }
+
+    let totalScheduled = 0;
+    let totalFailed = 0;
+
+    for (const day of weekDaysDates) {
+      const dayTime = normalizeDate(day).getTime();
+      const dayTasks = urgentHighTasks.filter((task) => {
+        if (!task.date) return false;
+        return normalizeDate(task.date).getTime() === dayTime;
+      });
+
+      if (dayTasks.length === 0) continue;
+
+      const existingBlocks = plannedEventsStore.blocksForDate(day);
+      const scheduledTaskIds = new Set(existingBlocks.filter((b) => b.taskId).map((b) => b.taskId as number));
+
+      const unscheduledTasks = dayTasks
+        .filter((task) => {
+          if (!task.id) return false;
+          return !scheduledTaskIds.has(task.id);
+        })
+        .sort((a, b) => {
+          const priorityOrder: Record<string, number> = { urgent: 0, high: 1, normal: 2, low: 3 };
+          const aPriority = priorityOrder[a.priority ?? 'normal'] ?? 2;
+          const bPriority = priorityOrder[b.priority ?? 'normal'] ?? 2;
+          return aPriority - bPriority;
+        })
+        .slice(0, 2); // Max 2 tasks per day
+
+      const currentBlocks = [...existingBlocks];
+      let dayScheduled = 0;
+      let dayFailed = 0;
+
+      for (const task of unscheduledTasks) {
+        const dayStart = new Date(day);
+        dayStart.setHours(0, 0, 0, 0);
+        const dayEnd = new Date(day);
+        dayEnd.setHours(23, 59, 59, 999);
+        const dayEvents = eventsStore.eventsInRange(dayStart, dayEnd);
+        const plannedEvent = autoScheduleTask(task, day, currentBlocks, dayEvents);
+        if (plannedEvent) {
+          try {
+            plannedEventsStore.addBlock(plannedEvent);
+            currentBlocks.push({ ...plannedEvent, id: 'temp' });
+            dayScheduled++;
+          } catch {
+            dayFailed++;
+          }
+        } else {
+          dayFailed++;
+        }
+      }
+
+      totalScheduled += dayScheduled;
+      totalFailed += dayFailed;
+    }
+
+    if (totalScheduled > 0) {
+      toastStore.showSuccess(
+        `Scheduled ${totalScheduled} task${totalScheduled !== 1 ? 's' : ''} across the week${totalFailed > 0 ? `. ${totalFailed} could not be scheduled` : ''}`
+      );
+    } else {
+      toastStore.showError('No free time slots available for this week');
+    }
+  }
+
+  function handleNavigation(action: { type: string; target: Date | number | string } | null) {
+    if (!action) return;
+    if (action.type === 'date' && action.target instanceof Date) {
+      currentDate = action.target;
+    }
+  }
+
+  let navigationUnsubscribe: (() => void) | null = null;
+
+  onMount(() => {
+    unsubscribe = eventsStore.subscribe(() => {
+      if (rangeStart && rangeEnd) {
+        events = eventsStore.eventsInRange(rangeStart, rangeEnd);
+      }
+    });
+    const catUnsub = hiddenCategoryIds.subscribe((ids) => {
+      hiddenIds = ids;
+    });
+    const autoScheduleHandler = () => handleAutoScheduleSelectedDay();
+    window.addEventListener('auto-schedule-selected-day', autoScheduleHandler);
+    navigationUnsubscribe = uiNavigationStore.subscribe(handleNavigation);
+    const teardown = unsubscribe;
+    unsubscribe = () => {
+      teardown?.();
+      catUnsub();
+      window.removeEventListener('auto-schedule-selected-day', autoScheduleHandler);
+      navigationUnsubscribe?.();
+    };
+    loadEvents();
+    // Load tasks for the week
+    tasksStore.loadAll();
+  });
+  onDestroy(() => {
+    unsubscribe?.();
+    navigationUnsubscribe?.();
+  });
+  $: safeDate && loadEvents();
+
+  function weekRange(start: Date) {
+    const end = new Date(start);
+    end.setDate(start.getDate() + 6);
+    return { start, end };
+  }
 
   async function loadEvents() {
     loading = true;
-    error = null;
-    try {
-      const startDate = new Date(weekDates[0]);
-      startDate.setHours(0, 0, 0, 0);
-      const endDate = new Date(weekDates[6]);
-      endDate.setHours(23, 59, 59, 999);
-      events = await getEvents(startDate.toISOString(), endDate.toISOString());
-    } catch (e) {
-      error = e instanceof Error ? e.message : 'Failed to load events';
-    } finally {
-      loading = false;
-    }
+    const { start, end } = weekRange(weekStart);
+    rangeStart = start;
+    rangeEnd = end;
+    await eventsStore.loadRange(start, end).catch(() => []);
+    events = eventsStore.eventsInRange(start, end);
+    loading = false;
   }
 
-  function getEventsForDayAndHour(day: Date, hour: number): Event[] {
-    return events.filter(event => {
-      const eventDate = new Date(event.start_time);
-      return eventDate.getDate() === day.getDate() &&
-             eventDate.getMonth() === day.getMonth() &&
-             eventDate.getFullYear() === day.getFullYear() &&
-             eventDate.getHours() === hour;
+  function eventsForDay(day: Date) {
+    const dayStart = new Date(day);
+    dayStart.setHours(0, 0, 0, 0);
+    const dayEnd = new Date(day);
+    dayEnd.setHours(23, 59, 59, 999);
+    return filtered.filter((event) => {
+      const start = new Date(event.start_time);
+      const end = new Date(event.end_time);
+      return start <= dayEnd && end >= dayStart;
     });
   }
 
-  function previousWeek() {
-    currentDate = new Date(currentDate);
-    currentDate.setDate(currentDate.getDate() - 7);
-    loadEvents();
-  }
-
-  function nextWeek() {
-    currentDate = new Date(currentDate);
-    currentDate.setDate(currentDate.getDate() + 7);
-    loadEvents();
-  }
-
-  function formatDate(date: Date): string {
-    return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-  }
-
-  function handleEventClick(event: Event) {
-    selectedEvent = event;
-    isEventModalOpen = true;
-  }
-
-  function handleCellClick(day: Date, hour: number) {
-    const date = new Date(day);
-    date.setHours(hour, 0, 0, 0);
-    quickAddDate = date;
-    isQuickAddOpen = true;
-  }
-
-  function handleEventSave(event: CustomEvent<Event>) {
-    // TODO: Implement save event
-    console.log('Save event:', event.detail);
-    loadEvents();
-  }
-
-  function handleQuickAdd(event: CustomEvent<{ title: string; date: Date; categoryId: number | null }>) {
-    // TODO: Implement quick add
-    console.log('Quick add:', event.detail);
-    loadEvents();
-  }
-
-  function getEventColor(event: Event): string {
-    if (event.category && event.category.color) {
-      return $settingsStore.getCategoryColor(event.category.id || 0, event.category.color);
-    }
-    return 'var(--accent-color, #3b82f6)';
-  }
-
-  function isToday(day: Date): boolean {
-    const today = new Date();
-    return day.getDate() === today.getDate() &&
-           day.getMonth() === today.getMonth() &&
-           day.getFullYear() === today.getFullYear();
-  }
+  const isAllDay = (event: Event) => {
+    if (event.all_day) return true;
+    const start = new Date(event.start_time);
+    const end = new Date(event.end_time);
+    const duration = end.getTime() - start.getTime();
+    return duration >= 24 * 60 * 60 * 1000;
+  };
 </script>
 
-<div class="week-view">
-  <div class="week-header">
-    <button class="nav-button" on:click={previousWeek}>←</button>
-    <h2>
-      {formatDate(weekDates[0])} - {formatDate(weekDates[6])}
-    </h2>
-    <div class="header-actions">
-      <button class="action-button" on:click={() => { quickAddDate = new Date(); isQuickAddOpen = true; }}>
-        + Quick Add
-      </button>
-      <button class="nav-button" on:click={nextWeek}>→</button>
+<div class="view">
+  <div class="legend">
+    <div>
+      <h2>Week</h2>
+      <p class="muted">Events this week and a planning overview by day.</p>
     </div>
+    {#if loading}<span class="pill">Loading...</span>{/if}
   </div>
-
-  {#if error}
-    <div class="error">{error}</div>
-  {/if}
-
-  {#if theme}
-    <ThemedCard theme={theme} elevation="md" class="week-grid">
-    <div class="time-column">
-      <div class="time-header"></div>
-      {#each hours as hour}
-        <div class="time-cell">{hour}:00</div>
-      {/each}
-    </div>
-
-    {#each weekDates as day}
-      <div class="day-column">
-        <div class="day-header" class:today={isToday(day)}>
-          <div class="day-name">{day.toLocaleDateString('en-US', { weekday: 'short' })}</div>
-          <div class="day-number">{day.getDate()}</div>
-        </div>
-        {#each hours as hour}
-          <div
-            class="hour-cell"
-            on:click={() => handleCellClick(day, hour)}
-            role="button"
-            tabindex="0"
-          >
-            {#each getEventsForDayAndHour(day, hour) as event}
-              <div
-                class="event-item"
-                style="background-color: {getEventColor(event)};"
-                on:click|stopPropagation={() => handleEventClick(event)}
-                role="button"
-                tabindex="0"
-                on:keydown={(e) => e.key === 'Enter' && handleEventClick(event)}
-              >
-                {event.title}
-              </div>
-            {/each}
+  <div class="week-grid">
+    {#each weekDaysDates as day}
+      <div class="day">
+        <div class="heading">
+          <div>
+            <p class="muted">{day.toLocaleDateString('en-US', { weekday: 'short' })}
+            <span class="planner-day-action">Open day plan</span></p>
+            <strong>{day.getDate()}</strong>
           </div>
-        {/each}
+          <button class="ghost tiny" on:click={() => dispatch('slot', day)}>Add event</button>
+        </div>
+        <div class="stack">
+          {#if eventsForDay(day).length === 0}
+            <p class="day-empty">No events planned</p>
+          {/if}
+          {#each eventsForDay(day) as event}
+            <button class="card" on:click={() => dispatch('selectEvent', event)}>
+              <div class="dot"></div>
+              <div>
+                <span class="title">{event.title}</span>
+                {#if isAllDay(event)}
+                  <small>All day</small>
+                {:else}
+                  <small>
+                    {new Date(event.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    -
+                    {new Date(event.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </small>
+                {/if}
+              </div>
+            </button>
+          {/each}
+        </div>
       </div>
     {/each}
-    </ThemedCard>
-  {/if}
+  </div>
 
-  {#if isEventModalOpen && selectedEvent}
-    <EventModal
-      event={selectedEvent}
-      isOpen={isEventModalOpen}
-      on:close={() => { isEventModalOpen = false; selectedEvent = null; }}
-      on:save={handleEventSave}
-    />
-  {/if}
-
-  {#if isQuickAddOpen}
-    <QuickAddModal
-      isOpen={isQuickAddOpen}
-      defaultDate={quickAddDate}
-      on:close={() => { isQuickAddOpen = false; quickAddDate = undefined; }}
-      on:create={handleQuickAdd}
-    />
-  {/if}
+  <!-- Planner Overview -->
+  <div class="planner-overview">
+    <div class="planner-header">
+      <h3>Week planning</h3>
+      <p class="planner-copy">Review each day, then open a day plan to add or adjust blocks.</p>
+      <button class="btn-auto-schedule" on:click={handleAutoScheduleWeek}>
+        Auto-schedule tasks
+      </button>
+    </div>
+    <div class="planner-days">
+      {#each plannerOverview as overview, index}
+        {@const day = weekDaysDates[index]}
+        <button
+          class="planner-day"
+          on:click={() => dispatch('slot', day)}
+          title="Open this day plan"
+        >
+          <div class="planner-day-label">
+            {day.toLocaleDateString('en-US', { weekday: 'short' })}
+            <span class="planner-day-action">Open day plan</span>
+          </div>
+          <div class="planner-day-stats">
+            <span class="blocks-count">{overview.blocksCount} blocks</span>
+            <span class="minutes-count">{Math.round(overview.totalMinutes / 60 * 10) / 10}h</span>
+          </div>
+        </button>
+      {/each}
+    </div>
+  </div>
+  
+  <WeekReviewPanel weekStart={weekStart} selectedDate={safeDate} />
 </div>
 
 <style>
-  .week-view {
-    max-width: 1400px;
-    margin: 0 auto;
+  .view { display: grid; gap: 12px; animation: fadeSlide 160ms ease; }
+  .legend { display: flex; align-items: center; justify-content: space-between; }
+  .muted { color: var(--text-muted); margin: 0; }
+  .week-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; }
+  .day {
+    background: var(--surface-0);
+    border: 1px solid var(--grid-line, var(--border));
+    border-radius: var(--radius-lg);
+    padding: 12px;
+    box-shadow: var(--shadow-sm);
+    display: grid;
+    gap: 10px;
+  }
+  .heading { display: flex; justify-content: space-between; align-items: center; }
+  .heading strong { font-size: 1.25rem; color: var(--text); }
+  .stack { display: grid; gap: 10px; }
+  .day-empty { margin: 0; color: var(--text-muted); font-size: 0.85rem; }
+  .card {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 10px;
+    align-items: center;
+    border: 1px solid var(--border);
+    background: var(--surface-1);
+    border-radius: var(--radius-md);
+    padding: 12px 14px;
+    color: var(--text);
+    cursor: pointer;
+    transition: transform 140ms ease, box-shadow 140ms ease, background 140ms ease;
+  }
+  .card:hover { transform: translateY(-1px); box-shadow: var(--shadow-sm); background: var(--surface-0); }
+  .card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .card .dot { width: 12px; height: 12px; border-radius: 50%; background: var(--accent); box-shadow: var(--shadow-xs); }
+  .card small { color: var(--text-muted); display: block; }
+  .ghost.tiny {
+    border: 1px solid var(--border);
+    background: var(--surface-1);
+    color: var(--text);
+    padding: 6px 10px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: background 140ms ease, border-color 140ms ease;
+  }
+  .ghost.tiny:hover { background: var(--surface-0); border-color: var(--border-light); }
+  .pill { padding: 6px 10px; background: var(--accent-light, var(--surface-0)); border-radius: var(--radius-sm); color: var(--text); border: 1px solid var(--border-light); }
+
+  .planner-overview {
+    margin-top: 16px;
+    padding: 16px;
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
   }
 
-  .week-header {
+  .planner-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 2rem;
-    gap: 1rem;
+    margin-bottom: 12px;
   }
 
-  .header-actions {
-    display: flex;
-    gap: 1rem;
-    align-items: center;
+  .planner-copy {
+    margin: 4px 0 0;
+    color: var(--text-muted);
+    font-size: 0.85rem;
   }
 
-  .action-button {
-    background: var(--accent-color);
-    color: white;
-    border: none;
-    border-radius: var(--border-radius-md, 0.5rem);
-    padding: 0.5rem 1rem;
-    cursor: pointer;
-    font-size: 0.875rem;
-    font-weight: var(--font-weight-medium, 500);
-    transition: all 0.2s;
-  }
-
-  .action-button:hover {
-    background: var(--accent-hover);
-    transform: translateY(-1px);
-    box-shadow: var(--shadow-sm);
-  }
-
-  .week-header h2 {
+  .planner-header h3 {
     margin: 0;
-    font-size: 1.75rem;
-    color: var(--text-primary);
-  }
-
-  .nav-button {
-    background: var(--bg-primary);
-    border: 1px solid var(--border-color);
-    border-radius: 0.375rem;
-    padding: 0.5rem 1rem;
-    cursor: pointer;
-    color: var(--text-primary);
     font-size: 1rem;
-    transition: all 0.2s;
-  }
-
-  .nav-button:hover {
-    background: var(--bg-hover);
-  }
-
-  .error {
-    background: var(--error-color);
-    color: white;
-    padding: 1rem;
-    border-radius: 0.375rem;
-    margin-bottom: 1rem;
-  }
-
-  .week-grid {
-    display: grid;
-    grid-template-columns: 80px repeat(7, 1fr);
-    overflow: hidden;
-  }
-
-  .time-column {
-    border-right: 1px solid var(--border-color);
-  }
-
-  .time-header {
-    height: 60px;
-    border-bottom: 1px solid var(--border-color);
-  }
-
-  .time-cell {
-    height: 60px;
-    padding: 0.5rem;
-    font-size: 0.75rem;
-    color: var(--text-secondary);
-    border-bottom: 1px solid var(--border-color);
-  }
-
-  .day-column {
-    border-right: 1px solid var(--border-color);
-  }
-
-  .day-column:last-child {
-    border-right: none;
-  }
-
-  .day-header {
-    height: 60px;
-    border-bottom: 1px solid var(--border-color);
-    padding: 0.5rem;
-    text-align: center;
-    background: var(--bg-hover);
-  }
-
-  .day-header.today {
-    background: var(--accent-light, rgba(59, 130, 246, 0.1));
-  }
-
-  .day-header.today .day-number {
-    background: var(--accent-color);
-    color: white;
-    width: 32px;
-    height: 32px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 50%;
-    margin: 0 auto;
-    font-weight: var(--font-weight-bold, 700);
-  }
-
-  .day-name {
     font-weight: 600;
-    color: var(--text-primary);
-    font-size: 0.875rem;
+    color: var(--text);
   }
 
-  .day-number {
-    font-size: 1.25rem;
-    font-weight: 700;
-    color: var(--text-primary);
-  }
-
-  .hour-cell {
-    height: 60px;
-    border-bottom: 1px solid var(--border-color);
-    padding: 0.25rem;
-    position: relative;
+  .btn-auto-schedule {
+    padding: 6px 12px;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border);
+    background: var(--accent);
+    color: var(--accent-text, white);
+    font-size: 0.85rem;
     cursor: pointer;
-    transition: background 0.2s;
+    transition: background 150ms ease-out, opacity 150ms ease-out;
   }
 
-  .hour-cell:hover {
-    background: var(--bg-hover);
-  }
-
-  .event-item {
-    font-size: 0.75rem;
-    padding: 0.25rem 0.5rem;
-    border-radius: var(--border-radius-sm, 0.375rem);
-    color: white;
-    margin-bottom: 0.25rem;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    cursor: pointer;
-    transition: all 0.2s;
-    font-weight: var(--font-weight-medium, 500);
-  }
-
-  .event-item:hover {
+  .btn-auto-schedule:hover {
+    background: var(--accent-hover, var(--accent));
     opacity: 0.9;
-    transform: translateX(2px);
-    box-shadow: var(--shadow-sm);
   }
 
-  .event-item:focus {
-    outline: 2px solid var(--accent-color);
+  .btn-auto-schedule:focus-visible {
+    outline: 2px solid var(--accent);
     outline-offset: 2px;
   }
+
+  .planner-days {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 8px;
+  }
+
+  .planner-day {
+    padding: 10px;
+    background: var(--surface-0);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: background 150ms ease-out, border-color 150ms ease-out, transform 150ms ease-out;
+    text-align: center;
+  }
+
+  .planner-day:hover {
+    background: var(--surface-1);
+    border-color: var(--border-light);
+    transform: translateY(-1px);
+  }
+
+  .planner-day:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  .planner-day-action {
+    display: block;
+    margin-top: 4px;
+    font-size: 0.7rem;
+    color: var(--text-muted);
+  }
+
+  .planner-day-label {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    margin-bottom: 6px;
+    font-weight: 500;
+  }
+
+  .planner-day-stats {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 0.8rem;
+    color: var(--text);
+  }
+
+  .blocks-count {
+    font-weight: 600;
+  }
+
+  .minutes-count {
+    color: var(--text-muted);
+    font-size: 0.75rem;
+  }
+
+  @keyframes fadeSlide {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
 </style>
+
+
+
 

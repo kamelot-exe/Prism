@@ -1,0 +1,18 @@
+{
+  "permission": [
+    {
+      "identifier": "http:default",
+      "description": "Allow HTTP requests to dev server and HTTPS",
+      "scope": {
+        "allow": [
+          {
+            "http": {
+              "scope": ["http://127.0.0.1:1420", "https://*"],
+              "allow": true
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

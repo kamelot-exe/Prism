@@ -1,49 +1,80 @@
-// Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod api;
 mod db;
-mod domain;
-mod error;
 mod gmail;
+mod error;
+mod domain;
 
-use db::create_pool;
-use tauri::Manager;
+use api::{
+    categories::*,
+    events::*,
+    gmail_api::*,
+    notifications_api::*,
+    pomodoro::*,
+    settings::*,
+    tasks::*,
+};
+use crate::api::suggestions_api::suggestions_stub;
 
-fn main() {
-    tauri::Builder::default()
+use db::pool::create_pool;
+use tauri::{async_runtime, Builder, Manager};
+
+#[tokio::main]
+async fn main() {
+    Builder::default()
         .setup(|app| {
-            let handle = app.handle();
-            let pool = match tauri::async_runtime::block_on(create_pool(&handle)) {
-                Ok(pool) => pool,
-                Err(e) => {
-                    return Err(Box::new(e) as Box<dyn std::error::Error + Send + Sync>);
-                }
-            };
-            app.manage(pool);
+            let db = async_runtime::block_on(create_pool(&app.handle()))
+                .expect("Failed to initialize database");
+            app.manage(db);
             Ok(())
         })
+        .plugin(tauri_plugin_notification::init())
         .invoke_handler(tauri::generate_handler![
-            api::events_api::events_list,
-            api::events_api::events_create,
-            api::events_api::events_update,
-            api::events_api::events_delete,
-            api::categories_api::categories_list,
-            api::categories_api::categories_create,
-            api::categories_api::categories_update,
-            api::categories_api::categories_delete,
-            api::tasks_api::tasks_list,
-            api::tasks_api::tasks_create,
-            api::tasks_api::tasks_update,
-            api::tasks_api::tasks_delete,
-            api::settings_api::settings_list,
-            api::settings_api::settings_put,
-            api::gmail_api::gmail_get_auth_url,
-            api::gmail_api::gmail_wait_for_callback,
-            api::gmail_api::gmail_exchange_code,
-            api::gmail_api::sync_gmail,
-            api::gmail_api::gmail_disconnect,
+            // Events
+            events_list,
+            events_create,
+            events_update,
+            events_delete,
+
+            // Categories
+            categories_list,
+            categories_create,
+            categories_update,
+            categories_delete,
+
+            // Tasks
+            tasks_list,
+            tasks_create,
+            tasks_update,
+            tasks_toggle_done,
+            tasks_delete,
+            task_parse_create,
+
+            // Settings
+            settings_get,
+            settings_save,
+
+            // Pomodoro
+            pomodoro_log_session,
+            pomodoro_list_for_date,
+            pomodoro_list_range,
+
+            // Suggestions
+            suggestions_stub,
+
+            // Gmail sync
+            gmail_get_auth_url,
+            gmail_wait_for_callback,
+            gmail_exchange_code,
+            gmail_disconnect,
+            gmail_sync,
+            gmail_status,
+
+            // Notifications
+            notify_event,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .expect("error while running Prism Calendar");
 }
+

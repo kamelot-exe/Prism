@@ -1,373 +1,314 @@
 <script lang="ts">
-  import { createEventDispatcher } from 'svelte';
-  import { listCategories, type Category } from '../lib/api';
-  import { settingsStore, type ThemeName } from '../stores/settings';
-  import { loadTheme, type Theme } from '../lib/theme';
-  import ThemePreview from './ThemePreview.svelte';
-  import { onMount } from 'svelte';
+  import { createEventDispatcher, onMount } from 'svelte';
+  import type { Category } from '../lib/api';
+  import { categoryStore } from '../stores/categoryStore';
+  import TodoPanel from './productivity/TodoPanel.svelte';
+  import SummaryPanel from './productivity/SummaryPanel.svelte';
+  import Pomodoro from './productivity/Pomodoro.svelte';
+  import WeeklyGoalsCard from './productivity/WeeklyGoalsCard.svelte';
+  import WeeklyPlanCard from './productivity/WeeklyPlanCard.svelte';
+  import { normalizeDate } from '../lib/dates/safeDate';
 
-  const dispatch = createEventDispatcher<{
-    dateSelect: Date;
-    categoryToggle: number;
-    themeSelect: ThemeName;
-  }>();
+  export let currentDate: Date | undefined = new Date();
+  export let isHovered = false;
+
+  const dispatch = createEventDispatcher<{ dateSelect: Date; hoverChange: boolean }>();
+
+  function handleMouseEnter() {
+    dispatch('hoverChange', true);
+  }
+
+  function handleMouseLeave() {
+    dispatch('hoverChange', false);
+  }
 
   let categories: Category[] = [];
-  let selectedDate = new Date();
-  let currentMonth = new Date();
-  let visibleCategories = new Set<number>();
-  let themes: ThemeName[] = ['light', 'dark', 'glassmorphism', 'avant-garde', 'brutalism', 'yeezy-minimal'];
+  let hiddenCategories = new Set<number>();
+  let safeDate = new Date();
+  $: safeDate = normalizeDate(currentDate);
 
-  onMount(async () => {
-    await loadCategories();
-    // Load visibility from settings
-    categories.forEach(cat => {
-      if (cat.id) visibleCategories.add(cat.id);
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const weekdayHeads = ['Mo','Tu','We','Th','Fr','Sa','Su'];
+
+  const daysInMonth = (date: Date) => new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
+  const firstWeekday = (date: Date) => {
+    const day = new Date(date.getFullYear(), date.getMonth(), 1).getDay();
+    return day === 0 ? 6 : day - 1;
+  };
+
+  $: monthLabel = `${months[safeDate.getMonth()]} ${safeDate.getFullYear()}`;
+
+  $: calendarCells = (() => {
+    const totalDays = daysInMonth(safeDate);
+    const startOffset = firstWeekday(safeDate);
+    return Array.from({ length: startOffset + totalDays }, (_, idx) => {
+      if (idx < startOffset) return null;
+      return idx - startOffset + 1;
     });
-  });
-
-  async function loadCategories() {
-    try {
-      categories = await listCategories();
-    } catch (error) {
-      console.error('Failed to load categories:', error);
-    }
-  }
-
-  function handleDateClick(day: number) {
-    const date = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day);
-    selectedDate = date;
-    dispatch('dateSelect', date);
-  }
-
-  function handleCategoryToggle(categoryId: number) {
-    if (visibleCategories.has(categoryId)) {
-      visibleCategories.delete(categoryId);
-    } else {
-      visibleCategories.add(categoryId);
-    }
-    dispatch('categoryToggle', categoryId);
-  }
-
-  function handleThemeSelect(themeName: string) {
-    dispatch('themeSelect', themeName as ThemeName);
-  }
-
-  function previousMonth() {
-    currentMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1);
-  }
-
-  function nextMonth() {
-    currentMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1);
-  }
-
-  const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  const weekDays = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
-
-  $: daysInMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0).getDate();
-  $: firstDayOfMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1).getDay();
-  $: monthName = monthNames[currentMonth.getMonth()];
-  $: year = currentMonth.getFullYear();
-
-  $: days = (() => {
-    const daysArray: (number | null)[] = [];
-    // Add empty cells for days before the first day of month
-    for (let i = 0; i < firstDayOfMonth; i++) {
-      daysArray.push(null);
-    }
-    // Add days of the month
-    for (let i = 1; i <= daysInMonth; i++) {
-      daysArray.push(i);
-    }
-    return daysArray;
   })();
 
-  function isToday(day: number | null): boolean {
-    if (day === null) return false;
-    const today = new Date();
-    return day === today.getDate() &&
-           currentMonth.getMonth() === today.getMonth() &&
-           currentMonth.getFullYear() === today.getFullYear();
+  onMount(() => {
+    const unsub = categoryStore.subscribe((cats) => {
+      categories = cats;
+    });
+    const unsubHidden = categoryStore.hiddenCategoryIds.subscribe((ids) => (hiddenCategories = ids));
+    (async () => {
+      await categoryStore.loadCategories();
+    })();
+    return () => {
+      unsub();
+      unsubHidden();
+    };
+  });
+
+  function selectDay(day: number) {
+    const next = new Date(safeDate);
+    next.setDate(day);
+    dispatch('dateSelect', next);
   }
 
-  function isSelected(day: number | null): boolean {
-    if (day === null) return false;
-    return day === selectedDate.getDate() &&
-           currentMonth.getMonth() === selectedDate.getMonth() &&
-           currentMonth.getFullYear() === selectedDate.getFullYear();
+  function jumpToMonth(monthIndex: number) {
+    const next = new Date(safeDate);
+    next.setMonth(monthIndex, Math.min(safeDate.getDate(), daysInMonth(new Date(safeDate.getFullYear(), monthIndex + 1, 0))));
+    dispatch('dateSelect', next);
+  }
+
+  function toggleCategory(categoryId: number | undefined) {
+    if (!categoryId) return;
+    categoryStore.toggleCategoryVisibility(categoryId);
   }
 </script>
 
-<div class="sidebar">
-  <!-- Mini Calendar -->
-  <section class="sidebar-section">
-    <div class="mini-calendar-header">
-      <button class="calendar-nav" on:click={previousMonth} aria-label="Previous month">
-        <svg width="16" height="16" viewBox="0 0 20 20" fill="none">
-          <path d="M12 15L7 10L12 5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-        </svg>
-      </button>
-      <h3 class="calendar-title">{monthName} {year}</h3>
-      <button class="calendar-nav" on:click={nextMonth} aria-label="Next month">
-        <svg width="16" height="16" viewBox="0 0 20 20" fill="none">
-          <path d="M8 5L13 10L8 15" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-        </svg>
-      </button>
-    </div>
-    
-    <div class="mini-calendar">
-      <div class="weekday-header">
-        {#each weekDays as day}
-          <div class="weekday">{day}</div>
+<aside 
+  class="sidebar surface" 
+  class:visible={isHovered}
+  on:mouseenter={handleMouseEnter}
+  on:mouseleave={handleMouseLeave}
+>
+  <section class="panel">
+    <header>
+      <div>
+        <p class="eyebrow">Calendar</p>
+        <h3>{monthLabel}</h3>
+      </div>
+      <div class="month-grid">
+        {#each months as label, idx}
+          <button class:active={idx === safeDate.getMonth()} on:click={() => jumpToMonth(idx)}>{label}</button>
         {/each}
       </div>
-      
+    </header>
+
+    <div class="mini-calendar">
+      <div class="weekday-row">
+        {#each weekdayHeads as wd}<span>{wd}</span>{/each}
+      </div>
       <div class="calendar-grid">
-        {#each days as day}
-          <button
-            class="calendar-day"
-            class:empty={day === null}
-            class:today={day !== null && isToday(day)}
-            class:selected={day !== null && isSelected(day)}
-            on:click={() => day !== null && handleDateClick(day)}
-            disabled={day === null}
-          >
-            {day}
-          </button>
+        {#each calendarCells as day}
+          {#if day === null}
+            <div></div>
+          {:else}
+            <button
+              class="day"
+              class:today={day === new Date().getDate() && safeDate.getMonth() === new Date().getMonth() && safeDate.getFullYear() === new Date().getFullYear()}
+              class:active={day === safeDate.getDate()}
+              on:click={() => selectDay(day)}
+            >
+              {day}
+            </button>
+          {/if}
         {/each}
       </div>
     </div>
   </section>
 
-  <!-- Categories -->
-  <section class="sidebar-section">
-    <h3 class="section-title">Categories</h3>
-    <div class="categories-list">
-      {#each categories as category}
-        <div class="category-item">
-          <button
-            class="category-toggle"
-            class:visible={visibleCategories.has(category.id || 0)}
-            on:click={() => handleCategoryToggle(category.id || 0)}
-            style:--category-color={category.color}
-          >
-            <div class="category-indicator" style:background={category.color}></div>
-            <span class="category-name">{category.name}</span>
-          </button>
-        </div>
-      {/each}
+  <section class="panel">
+    <div class="panel-head">
+      <div>
+        <p class="eyebrow">Categories</p>
+        <h4>Color-coded focus</h4>
+      </div>
+      <span class="count">{categories.length}</span>
+    </div>
+    <div class="category-list">
       {#if categories.length === 0}
-        <p class="empty-state">No categories yet</p>
+        <p class="muted">No categories yet. Add them in Settings > Categories.</p>
+      {:else}
+        {#each categories as category}
+          <div class="category-row" style={`--category-color:${category.color_hex || category.color}`}>
+            <span class="dot"></span>
+            <div>
+              <strong>{category.name}</strong>
+              <small>{category.color_hex}</small>
+            </div>
+            <button
+              class="ghost tiny toggle"
+              aria-label="Toggle category visibility"
+              class:muted-toggle={category.id && hiddenCategories.has(category.id)}
+              on:click={() => toggleCategory(category.id)}
+            >
+              {#if category.id && hiddenCategories.has(category.id)}
+                Show
+              {:else}
+                Hide
+              {/if}
+            </button>
+          </div>
+        {/each}
       {/if}
     </div>
   </section>
 
-  <!-- Theme Selector -->
-  <section class="sidebar-section">
-    <h3 class="section-title">Theme</h3>
-    <div class="themes-list">
-      {#each themes as themeName}
-        <ThemePreview
-          themeName={themeName}
-          selected={$settingsStore.theme === themeName}
-          onSelect={handleThemeSelect}
-        />
-      {/each}
-    </div>
+  <section class="panel">
+    <TodoPanel selectedDate={safeDate} />
   </section>
-</div>
+
+  <section class="panel">
+    <SummaryPanel selectedDate={safeDate} />
+  </section>
+
+  <section class="panel">
+    <Pomodoro />
+  </section>
+
+  <section class="panel">
+    <WeeklyGoalsCard {currentDate} />
+  </section>
+
+  <section class="panel">
+    <WeeklyPlanCard {currentDate} />
+  </section>
+</aside>
 
 <style>
   .sidebar {
-    width: var(--sidebar-width, 280px);
-    height: calc(100vh - var(--topbar-height, 64px));
-    background: var(--sidebar-bg);
-    border-right: 1px solid var(--sidebar-border);
+    width: var(--sidebar-width);
+    height: calc(100vh - var(--topbar-height) - 12px);
+    position: fixed;
+    left: 0;
+    top: calc(var(--topbar-height) + 6px);
+    display: grid;
+    gap: 14px;
+    padding: 14px;
     overflow-y: auto;
-    padding: var(--spacing-xl);
-    display: flex;
-    flex-direction: column;
-    gap: var(--spacing-xl);
+    background: var(--surface-0);
+    border: 1px solid var(--border);
+    border-radius: 0 var(--radius-lg) var(--radius-lg) 0;
+    box-shadow: var(--shadow-lg);
+    z-index: 50;
+    transform: translateX(-100%);
+    opacity: 0;
+    visibility: hidden;
+    transition: transform 200ms ease, opacity 200ms ease, visibility 200ms ease;
+    pointer-events: none;
   }
 
-  .sidebar-section {
-    display: flex;
-    flex-direction: column;
-    gap: var(--spacing-md);
+  .sidebar.visible {
+    transform: translateX(0);
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
   }
 
-  .section-title {
-    font-size: var(--font-size-sm);
-    font-weight: var(--font-weight-semibold);
+  .panel {
+    background: var(--surface-0);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 14px;
+    box-shadow: var(--shadow-sm);
+    display: grid;
+    gap: 12px;
+  }
+
+  header { display: grid; gap: 0.65rem; }
+  h3, h4 { margin: 0; color: var(--text); }
+  .eyebrow { margin: 0; text-transform: uppercase; letter-spacing: 0.08em; font-size: 0.75rem; color: var(--text-muted); }
+  .muted { color: var(--text-muted); margin: 0; }
+
+  .month-grid {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 6px;
+  }
+  .month-grid button {
+    border: 1px solid var(--border);
+    background: var(--surface-1);
     color: var(--text-secondary);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    margin: 0;
+    border-radius: var(--radius-sm);
+    padding: 8px 6px;
+    cursor: pointer;
+    transition: all 140ms ease;
   }
+  .month-grid button:hover { background: var(--surface-0); color: var(--text); box-shadow: var(--shadow-sm); }
+  .month-grid button.active { background: var(--accent-light, var(--surface-0)); color: var(--text); border-color: var(--border-light); }
 
-  /* Mini Calendar */
-  .mini-calendar-header {
+  .mini-calendar { display: grid; gap: 0.4rem; }
+  .weekday-row { display: grid; grid-template-columns: repeat(7, 1fr); gap: 0.35rem; color: var(--text-muted); font-size: 0.8rem; letter-spacing: 0.01em; }
+  .weekday-row span { text-align: center; }
+  .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+  .day {
+    width: 100%;
+    aspect-ratio: 1;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    background: var(--surface-1);
+    color: var(--text);
+    cursor: pointer;
+    transition: all 140ms ease;
+  }
+  .day:hover { background: var(--surface-0); box-shadow: var(--shadow-sm); }
+  .day.today { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); background: var(--accent-light, var(--surface-0)); }
+  .day.active { background: var(--accent-light, var(--surface-0)); box-shadow: 0 0 0 1px var(--border-light) inset; }
+
+  .panel-head {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    margin-bottom: var(--spacing-md);
+    gap: 0.5rem;
   }
-
-  .calendar-nav {
-    width: 24px;
-    height: 24px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: var(--button-bg);
+  .count {
+    background: var(--surface-1);
     border: 1px solid var(--border);
+    padding: 6px 10px;
     border-radius: var(--radius-sm);
     color: var(--text);
-    cursor: pointer;
-    transition: all var(--animation-duration) var(--animation-easing);
+    box-shadow: var(--shadow-xs);
   }
 
-  .calendar-nav:hover {
-    background: var(--button-hover);
-  }
-
-  .calendar-title {
-    font-size: var(--font-size-base);
-    font-weight: var(--font-weight-semibold);
-    color: var(--text);
-    margin: 0;
-  }
-
-  .mini-calendar {
-    display: flex;
-    flex-direction: column;
-    gap: var(--spacing-xs);
-  }
-
-  .weekday-header {
+  .category-list { display: grid; gap: 0.5rem; }
+  .category-row {
     display: grid;
-    grid-template-columns: repeat(7, 1fr);
-    gap: var(--spacing-xs);
-    margin-bottom: var(--spacing-xs);
-  }
-
-  .weekday {
-    text-align: center;
-    font-size: var(--font-size-xs);
-    font-weight: var(--font-weight-medium);
-    color: var(--text-muted);
-  }
-
-  .calendar-grid {
-    display: grid;
-    grid-template-columns: repeat(7, 1fr);
-    gap: var(--spacing-xs);
-  }
-
-  .calendar-day {
-    aspect-ratio: 1;
-    min-width: 32px;
-    display: flex;
+    grid-template-columns: auto 1fr auto;
+    gap: 10px;
     align-items: center;
-    justify-content: center;
-    background: transparent;
-    border: 1px solid transparent;
+    padding: 10px;
     border-radius: var(--radius-sm);
-    color: var(--text);
-    font-size: var(--font-size-xs);
-    font-weight: var(--font-weight-normal);
-    cursor: pointer;
-    transition: all var(--animation-duration) var(--animation-easing);
-  }
-
-  .calendar-day:not(.empty):hover {
-    background: var(--bg-hover);
-    border-color: var(--border);
-  }
-
-  .calendar-day.today {
-    background: var(--accent);
-    color: white;
-    font-weight: var(--font-weight-semibold);
-  }
-
-  .calendar-day.selected:not(.today) {
-    background: var(--accent-light);
-    border-color: var(--accent);
-    color: var(--accent);
-    font-weight: var(--font-weight-semibold);
-  }
-
-  .calendar-day.empty {
-    cursor: default;
-    opacity: 0;
-  }
-
-  .calendar-day:disabled {
-    cursor: default;
-  }
-
-  /* Categories */
-  .categories-list {
-    display: flex;
-    flex-direction: column;
-    gap: var(--spacing-xs);
-  }
-
-  .category-item {
-    display: flex;
-    align-items: center;
-  }
-
-  .category-toggle {
-    width: 100%;
-    display: flex;
-    align-items: center;
-    gap: var(--spacing-sm);
-    padding: var(--spacing-sm) var(--spacing-md);
-    background: var(--button-bg);
     border: 1px solid var(--border);
-    border-radius: var(--radius-md);
-    color: var(--text);
-    font-size: var(--font-size-sm);
-    cursor: pointer;
-    transition: all var(--animation-duration) var(--animation-easing);
+    background: var(--surface-1);
+    box-shadow: var(--shadow-xs);
+    transition: transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease;
   }
-
-  .category-toggle:hover {
-    background: var(--button-hover);
-    transform: translateX(2px);
-  }
-
-  .category-toggle.visible {
-    background: var(--accent-light);
-    border-color: var(--accent);
-  }
-
-  .category-indicator {
-    width: 12px;
-    height: 12px;
+  .dot {
+    width: 14px;
+    height: 14px;
     border-radius: 50%;
-    flex-shrink: 0;
+    border: 1px solid var(--border-light);
+    box-shadow: var(--shadow-xs);
+    background: var(--category-color, var(--accent));
   }
+  .category-row strong { display: block; color: var(--text); letter-spacing: 0.01em; }
+  .category-row small { color: var(--text-muted); }
+  .category-row:hover { box-shadow: var(--shadow-sm); transform: translateY(-1px); border-color: var(--border-light); }
 
-  .category-name {
-    flex: 1;
-    text-align: left;
+  .ghost.tiny {
+    border-radius: 10px;
+    padding: 6px 10px;
+    font-size: 0.9rem;
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    color: var(--text);
+    cursor: pointer;
+    transition: background 150ms ease, border-color 150ms ease;
   }
-
-  .empty-state {
-    font-size: var(--font-size-sm);
-    color: var(--text-muted);
-    text-align: center;
-    padding: var(--spacing-lg);
-  }
-
-  /* Themes */
-  .themes-list {
-    display: flex;
-    flex-direction: column;
-    gap: var(--spacing-md);
-  }
+  .ghost.tiny:hover { background: var(--surface-0); border-color: var(--border-light); }
+  .toggle.muted-toggle { opacity: 0.65; }
 </style>
-

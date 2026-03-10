@@ -1,5 +1,5 @@
 use sqlx::{sqlite::SqlitePoolOptions, SqlitePool};
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 use crate::{db::migrations, error::AppError};
 
@@ -20,41 +20,34 @@ pub async fn create_pool(app: &tauri::AppHandle) -> Result<DbPool, AppError> {
         .connect(&database_url)
         .await?;
 
-    // Run migrations - if they fail due to schema mismatch, delete and recreate
-    if let Err(_e) = migrations::run_migrations(&pool).await {
-        // If migration fails, it might be due to old schema - close pool and delete
+    sqlx::query("PRAGMA journal_mode=WAL;").execute(&pool).await?;
+    sqlx::query("PRAGMA synchronous=NORMAL;").execute(&pool).await?;
+    sqlx::query("PRAGMA foreign_keys=ON;").execute(&pool).await?;
+
+    if let Err(error) = migrations::run_migrations(&pool).await {
         pool.close().await;
         drop(pool);
-        
-        // Wait a bit to ensure file handles are released
+
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-        
+
+        let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S");
+        let backup_path = app_data.join(format!("prism_calendar_{timestamp}.bak"));
+
         if db_path.exists() {
-            // Try multiple times in case file is still locked
-            let mut attempts = 0;
-            while attempts < 5 {
-                match std::fs::remove_file(&db_path) {
-                    Ok(_) => break,
-                    Err(e) if attempts == 4 => {
-                        return Err(AppError::Config(format!("Failed to remove old database after multiple attempts: {e}")));
-                    }
-                    Err(_) => {
-                        attempts += 1;
-                        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
-                    }
-                }
-            }
+            std::fs::rename(&db_path, &backup_path).map_err(|rename_error| {
+                AppError::Config(format!(
+                    "Database migration failed ({error}). Backup creation also failed: {rename_error}"
+                ))
+            })?;
         }
-        
-        // Recreate the pool and run migrations again
-        let pool = SqlitePoolOptions::new()
-            .max_connections(10)
-            .connect(&database_url)
-            .await?;
-        
-        migrations::run_migrations(&pool).await?;
-        Ok(pool)
-    } else {
-        Ok(pool)
+
+        let backup_path_string = backup_path.display().to_string();
+        let _ = app.emit("migration-failed", backup_path_string.clone());
+
+        return Err(AppError::Config(format!(
+            "Database migration failed: {error}. Existing data was backed up to {backup_path_string}"
+        )));
     }
+
+    Ok(pool)
 }

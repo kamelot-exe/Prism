@@ -24,11 +24,11 @@ pub async fn list_events(
             r#"SELECT id, title, description, start_ts, end_ts, category_id, all_day as "all_day: bool", recurrence_rule,
                 reminder_minutes, source, external_id, created_at, updated_at
             FROM events
-            WHERE start_ts >= ? AND end_ts <= ?
+            WHERE start_ts < ? AND end_ts > ?
             ORDER BY start_ts"#,
         )
-        .bind(start_ts)
         .bind(end_ts)
+        .bind(start_ts)
         .fetch_all(pool)
         .await?
     } else {

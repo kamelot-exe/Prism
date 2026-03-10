@@ -1,0 +1,8 @@
+{
+  "identifier": "notifications",
+  "description": "Notification permissions",
+  "local": true,
+  "permissions": [
+    "notification:default"
+  ]
+}

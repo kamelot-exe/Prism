@@ -1,0 +1,13 @@
+{
+  "permission": [
+    {
+      "identifier": "protocol:asset",
+      "description": "Allow asset protocol",
+      "scope": {
+        "allow": [
+          { "protocol": { "asset": true } }
+        ]
+      }
+    }
+  ]
+}

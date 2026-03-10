@@ -74,6 +74,11 @@ impl OAuthClient {
         let mut store = self.token_store.lock().await;
         *store = Some(token_info.clone());
 
+        // Persist refresh token for future sessions
+        self.save_refresh_token(&token_info.refresh_token)
+            .await
+            .context("Failed to persist refresh token")?;
+
         Ok(token_info)
     }
 
@@ -120,12 +125,27 @@ impl OAuthClient {
 
         // Token expired or not found, try to refresh
         if let Some(refresh_token) = self.load_refresh_token().await? {
-            let token_info = self.refresh_access_token(&refresh_token).await?;
-            self.save_refresh_token(&token_info.refresh_token).await?;
-            Ok(token_info.access_token)
+            match self
+                .refresh_access_token(&refresh_token)
+                .await
+                .context("Failed to refresh access token")
+            {
+                Ok(token_info) => {
+                    self.save_refresh_token(&token_info.refresh_token).await?;
+                    Ok(token_info.access_token)
+                }
+                Err(err) => {
+                    let _ = self.clear_tokens().await;
+                    Err(err)
+                }
+            }
         } else {
             anyhow::bail!("No refresh token available. Please re-authenticate.");
         }
+    }
+
+    pub async fn has_refresh_token(&self) -> Result<bool> {
+        Ok(self.load_refresh_token().await?.is_some())
     }
 
     pub async fn save_refresh_token(&self, refresh_token: &str) -> Result<()> {

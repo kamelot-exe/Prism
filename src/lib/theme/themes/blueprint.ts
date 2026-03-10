@@ -1,0 +1,20 @@
+export default {
+  name: 'Blueprint Technical',
+  tokens: {
+    '--bg': '#0a1b3d',
+    '--bg-gradient': 'linear-gradient(180deg,#0a1b3d,#0c234a)',
+    '--surface-0': 'rgba(255,255,255,0.12)',
+    '--surface-1': 'rgba(255,255,255,0.08)',
+    '--text': '#ffffff',
+    '--text-muted': 'rgba(255,255,255,0.65)',
+    '--accent': '#9ed2ff',
+    '--accent-warning': '#ffc857',
+    '--grid-line': 'rgba(255,255,255,0.15)',
+    '--border': 'rgba(255,255,255,0.12)',
+    '--radius-sm': '6px',
+    '--radius-md': '10px',
+    '--shadow-sm': '0 0 20px rgba(158,210,255,0.25)',
+    '--shadow-md': '0 0 30px rgba(158,210,255,0.28)',
+    '--blur': '8px',
+  },
+};
