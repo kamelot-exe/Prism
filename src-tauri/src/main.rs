@@ -9,9 +9,12 @@ mod domain;
 use api::{
     categories::*,
     events::*,
+    focus_sessions::*,
     gmail_api::*,
     notifications_api::*,
+    planned_blocks::*,
     pomodoro::*,
+    recurrence_exceptions::*,
     settings::*,
     tasks::*,
 };
@@ -31,19 +34,16 @@ async fn main() {
         })
         .plugin(tauri_plugin_notification::init())
         .invoke_handler(tauri::generate_handler![
-            // Events
             events_list,
             events_create,
             events_update,
             events_delete,
 
-            // Categories
             categories_list,
             categories_create,
             categories_update,
             categories_delete,
 
-            // Tasks
             tasks_list,
             tasks_list_range,
             tasks_create,
@@ -52,19 +52,27 @@ async fn main() {
             tasks_delete,
             task_parse_create,
 
-            // Settings
+            createPlannedBlock,
+            updatePlannedBlock,
+            deletePlannedBlock,
+            listPlannedBlocksRange,
+
+            createFocusSession,
+            completeFocusSession,
+            listFocusSessionsRange,
+
+            createRecurrenceException,
+            listRecurrenceExceptions,
+
             settings_get,
             settings_save,
 
-            // Pomodoro
             pomodoro_log_session,
             pomodoro_list_for_date,
             pomodoro_list_range,
 
-            // Suggestions
             suggestions_stub,
 
-            // Gmail sync
             gmail_get_auth_url,
             gmail_wait_for_callback,
             gmail_exchange_code,
@@ -72,12 +80,8 @@ async fn main() {
             gmail_sync,
             gmail_status,
 
-            // Notifications
             notify_event,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Prism Calendar");
 }
-
-
-

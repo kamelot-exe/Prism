@@ -1,15 +1,21 @@
 pub mod categories;
 pub mod events;
+pub mod focus_sessions;
+pub mod planned_blocks;
 pub mod pomodoro;
 pub mod recurrence;
+pub mod recurrence_exceptions;
 pub mod settings;
 pub mod task_parse;
 pub mod tasks;
 
 pub use categories::*;
 pub use events::*;
+pub use focus_sessions::*;
+pub use planned_blocks::*;
 pub use pomodoro::*;
 pub use recurrence::*;
+pub use recurrence_exceptions::*;
 pub use settings::*;
 pub use task_parse::*;
 pub use tasks::*;
