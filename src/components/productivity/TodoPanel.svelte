@@ -245,7 +245,7 @@
     }
 
     try {
-      plannedEventsStore.addBlock(plannedEvent);
+      await plannedEventsStore.addBlock(plannedEvent);
     } catch (err) {
       toastStore.showError(err instanceof Error ? err.message : 'Could not create planned block');
       return;
@@ -283,7 +283,7 @@
     let rejectedCount = 0;
     for (const block of result.scheduled) {
       try {
-        plannedEventsStore.addBlock(block);
+        await plannedEventsStore.addBlock(block);
         scheduledCount += 1;
       } catch {
         rejectedCount += 1;
@@ -799,6 +799,8 @@
   .muted { color: var(--text-muted); margin: 0; }
   .ghost.tiny { padding: 6px 8px; font-size: 0.9rem; }
 </style>
+
+
 
 
 

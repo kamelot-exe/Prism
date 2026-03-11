@@ -135,7 +135,7 @@
     }
   }
 
-  function handleGlobalDrop(e: DragEvent) {
+  async function handleGlobalDrop(e: DragEvent) {
     if (!schedulerGrid) return;
 
     let dragData = externalDragData;
@@ -175,7 +175,7 @@
 
     let newBlock: PlannedEvent;
     try {
-      newBlock = plannedEventsStore.addBlock(newBlockData);
+      newBlock = await plannedEventsStore.addBlock(newBlockData);
       clearMutationError();
     } catch (err) {
       reportMutationError(err, 'Could not create planned block');
@@ -262,7 +262,7 @@
     document.addEventListener('mouseup', handleMouseUp);
   }
 
-  function handleMouseMove(e: MouseEvent) {
+  async function handleMouseMove(e: MouseEvent) {
     if (!schedulerGrid) return;
 
     const rect = schedulerGrid.getBoundingClientRect();
@@ -287,7 +287,7 @@
       const clampedEnd = clampToDayBounds(newEnd, dayStart, dayEnd);
 
       try {
-        plannedEventsStore.updateBlockDuration(draggedBlock.id, clampedEnd);
+        await plannedEventsStore.updateBlockDuration(draggedBlock.id, clampedEnd);
         clearMutationError();
       } catch (err) {
         reportMutationError(err, 'Could not resize planned block');
@@ -333,7 +333,7 @@
 
         if (updates.length > 0) {
           try {
-            plannedEventsStore.updateBlocksBulk(updates);
+            await plannedEventsStore.updateBlocksBulk(updates);
             clearMutationError();
           } catch (err) {
             reportMutationError(err, 'Could not move planned blocks');
@@ -341,7 +341,7 @@
         }
       } else {
         try {
-          plannedEventsStore.updateBlockPosition(draggedBlock.id, clampedStart, clampedEnd);
+          await plannedEventsStore.updateBlockPosition(draggedBlock.id, clampedStart, clampedEnd);
           clearMutationError();
         } catch (err) {
           reportMutationError(err, 'Could not move planned block');
@@ -447,7 +447,7 @@
     }
 
     try {
-      plannedEventsStore.updateBlock(block.id, { completed: true });
+      await plannedEventsStore.updateBlock(block.id, { completed: true });
       clearMutationError();
       toastStore.showSuccess('Task completed');
     } catch (err) {
@@ -455,7 +455,7 @@
     }
   }
 
-  function handleRemove(e: MouseEvent, block: PlannedEvent) {
+  async function handleRemove(e: MouseEvent, block: PlannedEvent) {
     e.stopPropagation();
     e.preventDefault();
 
@@ -463,7 +463,7 @@
       return;
     }
 
-    plannedEventsStore.removeBlock(block.id);
+    await plannedEventsStore.removeBlock(block.id);
     toastStore.showSuccess('Block removed');
     if (selection.selectedIds.has(block.id)) {
       selection = clearSelection();
@@ -476,7 +476,7 @@
     focusStore.startSessionFromBlock(block.id, block.title, block.start, block.end);
   }
 
-  function handleDuplicate(e: MouseEvent, block: PlannedEvent) {
+  async function handleDuplicate(e: MouseEvent, block: PlannedEvent) {
     e.stopPropagation();
     e.preventDefault();
 
@@ -489,7 +489,7 @@
     const clampedFinalStart = clampToDayBounds(finalStart, dayStart, dayEnd);
 
     try {
-      const newBlock = plannedEventsStore.duplicateBlock(block.id, clampedFinalStart, finalEnd);
+      const newBlock = await plannedEventsStore.duplicateBlock(block.id, clampedFinalStart, finalEnd);
       clearMutationError();
       newlyAddedBlockIds.add(newBlock.id);
       setTimeout(() => {
@@ -501,7 +501,7 @@
     }
   }
 
-  function handleBulkDelete() {
+  async function handleBulkDelete() {
     const selectedIds = Array.from(selection.selectedIds);
     if (selectedIds.length === 0) return;
 
@@ -509,12 +509,12 @@
       return;
     }
 
-    plannedEventsStore.removeBlocks(selectedIds);
+    await plannedEventsStore.removeBlocks(selectedIds);
     selection = clearSelection();
     toastStore.showSuccess(selectedIds.length > 1 ? `${selectedIds.length} blocks deleted` : 'Block deleted');
   }
 
-  function handleDuplicatePrimary() {
+  async function handleDuplicatePrimary() {
     if (!selection.primaryId) return;
 
     const block = blocks.find((b) => b.id === selection.primaryId);
@@ -529,7 +529,7 @@
     const clampedFinalStart = clampToDayBounds(finalStart, dayStart, dayEnd);
 
     try {
-      const newBlock = plannedEventsStore.duplicateBlock(block.id, clampedFinalStart, finalEnd);
+      const newBlock = await plannedEventsStore.duplicateBlock(block.id, clampedFinalStart, finalEnd);
       clearMutationError();
       newlyAddedBlockIds.add(newBlock.id);
       setTimeout(() => {
@@ -980,3 +980,4 @@
     font-weight: 500;
   }
 </style>
+

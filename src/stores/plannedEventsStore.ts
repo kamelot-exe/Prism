@@ -1,7 +1,14 @@
-import { writable, get } from 'svelte/store';
+import { writable } from 'svelte/store';
 import { normalizeDate } from '../lib/dates/safeDate';
 import { endOfDay, startOfDay } from '../lib/dates/positioning';
 import { overlaps } from '../lib/scheduler/conflicts';
+import {
+  createPlannedBlock,
+  deletePlannedBlock,
+  listPlannedBlocksRange,
+  updatePlannedBlock,
+  type PlannedBlockRecord,
+} from '../lib/api';
 
 export interface PlannedEvent {
   id: string;
@@ -31,6 +38,7 @@ export class PlannedBlockValidationError extends Error {
 }
 
 const STORAGE_KEY = 'prism_planned_events';
+const MIGRATION_KEY = 'prism_planned_events_sqlite_migrated';
 const PRUNE_DAYS = 90;
 const MIN_BLOCK_MINUTES = 5;
 
@@ -41,6 +49,7 @@ function makeId(): string {
 function coerceBlock(event: any): PlannedEvent {
   return {
     ...event,
+    id: String(event.id),
     start: new Date(event.start),
     end: new Date(event.end),
     completed: event.completed ?? false,
@@ -53,6 +62,25 @@ function serialize(events: PlannedEvent[]) {
     start: event.start.toISOString(),
     end: event.end.toISOString(),
   }));
+}
+
+function mapRecordToBlock(record: PlannedBlockRecord): PlannedEvent {
+  return {
+    id: String(record.id),
+    taskId: record.taskId ?? undefined,
+    title: record.title,
+    start: new Date(record.start),
+    end: new Date(record.end),
+    completed: record.completed ?? false,
+  };
+}
+
+function parseBlockId(id: string): number {
+  const parsed = Number.parseInt(id, 10);
+  if (!Number.isFinite(parsed)) {
+    throw new PlannedBlockValidationError('not_found', `Block with id ${id} not found.`);
+  }
+  return parsed;
 }
 
 function clampBlockToSameDay<T extends Pick<PlannedEvent, 'start' | 'end'>>(block: T): T {
@@ -122,7 +150,7 @@ function validateBatch(
   return validated;
 }
 
-function loadFromStorage(): PlannedEvent[] {
+function loadLegacyBlocksFromStorage(): PlannedEvent[] {
   if (typeof window === 'undefined') return [];
 
   try {
@@ -140,171 +168,260 @@ function loadFromStorage(): PlannedEvent[] {
       try {
         valid.push(validateBlock(block, valid));
       } catch {
-        // Drop invalid persisted blocks rather than loading corrupted state.
+        // Drop invalid persisted blocks rather than importing corrupted state.
       }
     }
 
     if (valid.length !== all.length) {
-      try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(serialize(valid)));
-      } catch {
-        // non-critical
-      }
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(serialize(valid)));
     }
 
     return valid;
   } catch (err) {
-    console.error('Failed to load planned events from storage', err);
+    console.error('Failed to load planned events from legacy storage', err);
     return [];
   }
 }
 
-function saveToStorage(events: PlannedEvent[]): void {
-  if (typeof window === 'undefined') return;
-
+function hasMigrationMarker(): boolean {
+  if (typeof window === 'undefined') return false;
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(serialize(events)));
-  } catch (err) {
-    console.error('Failed to save planned events to storage', err);
+    return localStorage.getItem(MIGRATION_KEY) === '1';
+  } catch {
+    return false;
   }
 }
 
+function markMigrationComplete(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(MIGRATION_KEY, '1');
+  } catch {
+    // non-critical
+  }
+}
+
+function clearLegacyStorage(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.removeItem(STORAGE_KEY);
+  } catch {
+    // non-critical
+  }
+}
+
+async function importLegacyBlocksIfNeeded(): Promise<PlannedEvent[]> {
+  const persisted = (await listPlannedBlocksRange()).map(mapRecordToBlock);
+  if (persisted.length > 0) {
+    return persisted;
+  }
+
+  if (hasMigrationMarker()) {
+    return persisted;
+  }
+
+  const legacyBlocks = loadLegacyBlocksFromStorage();
+  if (legacyBlocks.length === 0) {
+    return persisted;
+  }
+
+  const starts = legacyBlocks.map((block) => block.start.getTime());
+  const ends = legacyBlocks.map((block) => block.end.getTime());
+  const rangeStart = new Date(Math.min(...starts));
+  const rangeEnd = new Date(Math.max(...ends));
+  const existingInRange = await listPlannedBlocksRange(rangeStart.toISOString(), rangeEnd.toISOString());
+  if (existingInRange.length > 0) {
+    return existingInRange.map(mapRecordToBlock);
+  }
+
+  for (const block of legacyBlocks) {
+    await createPlannedBlock({
+      taskId: block.taskId,
+      title: block.title,
+      start: block.start.toISOString(),
+      end: block.end.toISOString(),
+      completed: block.completed ?? false,
+    });
+  }
+
+  markMigrationComplete();
+  clearLegacyStorage();
+  return (await listPlannedBlocksRange()).map(mapRecordToBlock);
+}
+
 function createPlannedEventsStore() {
-  const { subscribe, update } = writable<PlannedEvent[]>(loadFromStorage());
+  const { subscribe, set } = writable<PlannedEvent[]>([]);
+  let initialized = false;
+  let initializing: Promise<void> | null = null;
+  let currentBlocks: PlannedEvent[] = [];
 
-  function addBlock(block: Omit<PlannedEvent, 'id'>): PlannedEvent {
-    const newBlock = validateBlock({ ...block, id: makeId() }, get({ subscribe }));
-
-    update((current) => {
-      const updated = [...current, newBlock];
-      saveToStorage(updated);
-      return updated;
-    });
-
-    return newBlock;
+  function applyState(nextBlocks: PlannedEvent[]): PlannedEvent[] {
+    currentBlocks = [...nextBlocks].sort((a, b) => a.start.getTime() - b.start.getTime());
+    set(currentBlocks);
+    return currentBlocks;
   }
 
-  function updateBlockPosition(id: string, newStart: Date, newEnd: Date): PlannedEvent {
-    let updatedBlock: PlannedEvent | null = null;
+  async function reloadFromDb(): Promise<PlannedEvent[]> {
+    const blocks = (await listPlannedBlocksRange()).map(mapRecordToBlock);
+    return applyState(blocks);
+  }
 
-    update((current) => {
-      const existing = current.find((block) => block.id === id);
-      if (!existing) {
-        throw new PlannedBlockValidationError('not_found', `Block with id ${id} not found.`);
-      }
+  async function ensureLoaded(): Promise<void> {
+    if (initialized) {
+      return;
+    }
 
-      updatedBlock = validateBlock({ ...existing, start: newStart, end: newEnd }, current, new Set([id]));
-      const updated = current.map((block) => (block.id === id ? updatedBlock! : block));
-      saveToStorage(updated);
-      return updated;
+    if (!initializing) {
+      initializing = (async () => {
+        const blocks = await importLegacyBlocksIfNeeded();
+        applyState(blocks);
+        initialized = true;
+      })().catch((err) => {
+        console.error('Failed to initialize planned blocks store', err);
+        const legacyBlocks = loadLegacyBlocksFromStorage();
+        applyState(legacyBlocks);
+        initialized = true;
+      }).finally(() => {
+        initializing = null;
+      });
+    }
+
+    await initializing;
+  }
+
+  void ensureLoaded();
+
+  async function addBlock(block: Omit<PlannedEvent, 'id'>): Promise<PlannedEvent> {
+    await ensureLoaded();
+    const validated = validateBlock({ ...block, id: makeId() }, currentBlocks);
+    const persisted = await createPlannedBlock({
+      taskId: validated.taskId,
+      title: validated.title,
+      start: validated.start.toISOString(),
+      end: validated.end.toISOString(),
+      completed: validated.completed ?? false,
     });
+    const savedBlock = mapRecordToBlock(persisted);
+    applyState([...currentBlocks, savedBlock]);
+    return savedBlock;
+  }
 
-    if (!updatedBlock) {
+  async function updateBlockPosition(id: string, newStart: Date, newEnd: Date): Promise<PlannedEvent> {
+    await ensureLoaded();
+    const existing = currentBlocks.find((block) => block.id === id);
+    if (!existing) {
       throw new PlannedBlockValidationError('not_found', `Block with id ${id} not found.`);
     }
 
-    return updatedBlock;
+    const validated = validateBlock({ ...existing, start: newStart, end: newEnd }, currentBlocks, new Set([id]));
+    const persisted = await updatePlannedBlock({
+      id: parseBlockId(id),
+      start: validated.start.toISOString(),
+      end: validated.end.toISOString(),
+    });
+    const savedBlock = mapRecordToBlock(persisted);
+    applyState(currentBlocks.map((block) => (block.id === id ? savedBlock : block)));
+    return savedBlock;
   }
 
-  function updateBlockDuration(id: string, newEnd: Date): PlannedEvent {
-    let updatedBlock: PlannedEvent | null = null;
-
-    update((current) => {
-      const existing = current.find((block) => block.id === id);
-      if (!existing) {
-        throw new PlannedBlockValidationError('not_found', `Block with id ${id} not found.`);
-      }
-
-      updatedBlock = validateBlock({ ...existing, end: newEnd }, current, new Set([id]));
-      const updated = current.map((block) => (block.id === id ? updatedBlock! : block));
-      saveToStorage(updated);
-      return updated;
-    });
-
-    if (!updatedBlock) {
+  async function updateBlockDuration(id: string, newEnd: Date): Promise<PlannedEvent> {
+    await ensureLoaded();
+    const existing = currentBlocks.find((block) => block.id === id);
+    if (!existing) {
       throw new PlannedBlockValidationError('not_found', `Block with id ${id} not found.`);
     }
 
-    return updatedBlock;
+    const validated = validateBlock({ ...existing, end: newEnd }, currentBlocks, new Set([id]));
+    const persisted = await updatePlannedBlock({
+      id: parseBlockId(id),
+      end: validated.end.toISOString(),
+    });
+    const savedBlock = mapRecordToBlock(persisted);
+    applyState(currentBlocks.map((block) => (block.id === id ? savedBlock : block)));
+    return savedBlock;
   }
 
-  function removeBlock(id: string): void {
-    update((current) => {
-      const updated = current.filter((block) => block.id !== id);
-      saveToStorage(updated);
-      return updated;
-    });
+  async function removeBlock(id: string): Promise<void> {
+    await ensureLoaded();
+    await deletePlannedBlock(parseBlockId(id));
+    applyState(currentBlocks.filter((block) => block.id !== id));
   }
 
-  function updateBlock(id: string, patch: Partial<Omit<PlannedEvent, 'id'>>): PlannedEvent {
-    let updatedBlock: PlannedEvent | null = null;
-
-    update((current) => {
-      const existing = current.find((block) => block.id === id);
-      if (!existing) {
-        throw new PlannedBlockValidationError('not_found', `Block with id ${id} not found.`);
-      }
-
-      const candidate = { ...existing, ...patch };
-      updatedBlock =
-        patch.start || patch.end
-          ? validateBlock(candidate, current, new Set([id]))
-          : candidate;
-
-      const updated = current.map((block) => (block.id === id ? updatedBlock! : block));
-      saveToStorage(updated);
-      return updated;
-    });
-
-    if (!updatedBlock) {
+  async function updateBlock(id: string, patch: Partial<Omit<PlannedEvent, 'id'>>): Promise<PlannedEvent> {
+    await ensureLoaded();
+    const existing = currentBlocks.find((block) => block.id === id);
+    if (!existing) {
       throw new PlannedBlockValidationError('not_found', `Block with id ${id} not found.`);
     }
 
-    return updatedBlock;
+    const candidate = { ...existing, ...patch };
+    const validated = patch.start || patch.end
+      ? validateBlock(candidate, currentBlocks, new Set([id]))
+      : candidate;
+
+    const persisted = await updatePlannedBlock({
+      id: parseBlockId(id),
+      taskId: validated.taskId,
+      title: validated.title,
+      start: validated.start.toISOString(),
+      end: validated.end.toISOString(),
+      completed: validated.completed,
+    });
+    const savedBlock = mapRecordToBlock(persisted);
+    applyState(currentBlocks.map((block) => (block.id === id ? savedBlock : block)));
+    return savedBlock;
   }
 
   function blocksForDate(date: Date): PlannedEvent[] {
-    const state = get({ subscribe });
     const targetDate = normalizeDate(date);
-
-    return state.filter((block) => normalizeDate(block.start).getTime() === targetDate.getTime());
+    return currentBlocks.filter((block) => normalizeDate(block.start).getTime() === targetDate.getTime());
   }
 
-  function clearForDate(date: Date): void {
+  async function clearForDate(date: Date): Promise<void> {
+    await ensureLoaded();
+    const targetBlocks = blocksForDate(date);
+    for (const block of targetBlocks) {
+      await deletePlannedBlock(parseBlockId(block.id));
+    }
     const targetDate = normalizeDate(date);
-    update((current) => {
-      const updated = current.filter((block) => normalizeDate(block.start).getTime() !== targetDate.getTime());
-      saveToStorage(updated);
-      return updated;
-    });
+    applyState(currentBlocks.filter((block) => normalizeDate(block.start).getTime() !== targetDate.getTime()));
   }
 
-  function updateBlocksBulk(updates: Array<{ id: string; start: Date; end: Date }>): PlannedEvent[] {
-    let validatedBlocks: PlannedEvent[] = [];
-
-    update((current) => {
-      const ids = new Set(updates.map((entry) => entry.id));
-      const proposed = updates.map((entry) => {
-        const existing = current.find((block) => block.id === entry.id);
-        if (!existing) {
-          throw new PlannedBlockValidationError('not_found', `Block with id ${entry.id} not found.`);
-        }
-        return { ...existing, start: entry.start, end: entry.end };
-      });
-
-      validatedBlocks = validateBatch(proposed, current, ids);
-      const validatedMap = new Map(validatedBlocks.map((block) => [block.id, block]));
-      const updated = current.map((block) => validatedMap.get(block.id) ?? block);
-      saveToStorage(updated);
-      return updated;
+  async function updateBlocksBulk(updates: Array<{ id: string; start: Date; end: Date }>): Promise<PlannedEvent[]> {
+    await ensureLoaded();
+    const ids = new Set(updates.map((entry) => entry.id));
+    const proposed = updates.map((entry) => {
+      const existing = currentBlocks.find((block) => block.id === entry.id);
+      if (!existing) {
+        throw new PlannedBlockValidationError('not_found', `Block with id ${entry.id} not found.`);
+      }
+      return { ...existing, start: entry.start, end: entry.end };
     });
 
-    return validatedBlocks;
+    const validatedBlocks = validateBatch(proposed, currentBlocks, ids);
+
+    try {
+      const persistedBlocks: PlannedEvent[] = [];
+      for (const block of validatedBlocks) {
+        const persisted = await updatePlannedBlock({
+          id: parseBlockId(block.id),
+          start: block.start.toISOString(),
+          end: block.end.toISOString(),
+        });
+        persistedBlocks.push(mapRecordToBlock(persisted));
+      }
+      const persistedMap = new Map(persistedBlocks.map((block) => [block.id, block]));
+      applyState(currentBlocks.map((block) => persistedMap.get(block.id) ?? block));
+      return persistedBlocks;
+    } catch (err) {
+      await reloadFromDb();
+      throw err;
+    }
   }
 
-  function duplicateBlock(id: string, newStart: Date, newEnd: Date): PlannedEvent {
-    const state = get({ subscribe });
-    const original = state.find((block) => block.id === id);
+  async function duplicateBlock(id: string, newStart: Date, newEnd: Date): Promise<PlannedEvent> {
+    await ensureLoaded();
+    const original = currentBlocks.find((block) => block.id === id);
     if (!original) {
       throw new PlannedBlockValidationError('not_found', `Block with id ${id} not found.`);
     }
@@ -316,28 +433,38 @@ function createPlannedEventsStore() {
         start: newStart,
         end: newEnd,
       },
-      state
+      currentBlocks
     );
 
-    update((current) => {
-      const updated = [...current, newBlock];
-      saveToStorage(updated);
-      return updated;
+    const persisted = await createPlannedBlock({
+      taskId: newBlock.taskId,
+      title: newBlock.title,
+      start: newBlock.start.toISOString(),
+      end: newBlock.end.toISOString(),
+      completed: newBlock.completed ?? false,
     });
-
-    return newBlock;
+    const savedBlock = mapRecordToBlock(persisted);
+    applyState([...currentBlocks, savedBlock]);
+    return savedBlock;
   }
 
-  function removeBlocks(ids: string[]): void {
-    update((current) => {
-      const updated = current.filter((block) => !ids.includes(block.id));
-      saveToStorage(updated);
-      return updated;
-    });
+  async function removeBlocks(ids: string[]): Promise<void> {
+    await ensureLoaded();
+    try {
+      for (const id of ids) {
+        await deletePlannedBlock(parseBlockId(id));
+      }
+      applyState(currentBlocks.filter((block) => !ids.includes(block.id)));
+    } catch (err) {
+      await reloadFromDb();
+      throw err;
+    }
   }
 
   return {
     subscribe,
+    ensureLoaded,
+    reloadFromDb,
     addBlock,
     updateBlockPosition,
     updateBlockDuration,

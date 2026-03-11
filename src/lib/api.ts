@@ -54,14 +54,14 @@ export interface UpdateEventRequest {
 export interface Recurrence {
   kind: 'daily' | 'weekly' | 'monthly' | 'yearly' | 'custom';
   interval?: number;
-  daysOfWeek?: number[]; // 0=Monday, 1=Tuesday, ..., 6=Sunday
+  daysOfWeek?: number[];
 }
 
 export interface PomodoroSession {
   id: number;
   taskId?: number | null;
   kind: 'focus' | 'break';
-  startedAt: string; // ISO string
+  startedAt: string;
   endedAt?: string | null;
   durationMinutes: number;
   completed: boolean;
@@ -74,6 +74,36 @@ export interface NewPomodoroSessionPayload {
   durationMinutes: number;
   completed: boolean;
   endedAt?: string | null;
+}
+
+export interface PlannedBlockRecord {
+  id: number;
+  taskId?: number | null;
+  eventId?: number | null;
+  title: string;
+  start: string;
+  end: string;
+  completed?: boolean;
+  createdAt?: string;
+}
+
+export interface CreatePlannedBlockRequest {
+  taskId?: number | null;
+  eventId?: number | null;
+  title: string;
+  start: string;
+  end: string;
+  completed?: boolean;
+}
+
+export interface UpdatePlannedBlockRequest {
+  id: number;
+  taskId?: number | null;
+  eventId?: number | null;
+  title?: string;
+  start?: string;
+  end?: string;
+  completed?: boolean;
 }
 
 export type TaskPriority = 'low' | 'normal' | 'high' | 'urgent';
@@ -101,8 +131,8 @@ export interface ProductivitySettings {
   pomodoroAutoStart?: boolean;
   quickAddDuration: number;
   todoAutoRoll: boolean;
-  workDayStart?: string; // "09:00"
-  workDayEnd?: string;   // "18:00"
+  workDayStart?: string;
+  workDayEnd?: string;
 }
 
 export interface AppSettings {
@@ -127,6 +157,7 @@ export interface TokenInfo {
 }
 
 const fallbackId = () => Math.floor(Date.now() + Math.random() * 1000);
+const fallbackPlannedBlocks = new Map<number, PlannedBlockRecord>();
 
 const defaultAppSettings: AppSettings = {
   theme: 'base',
@@ -140,8 +171,8 @@ const defaultAppSettings: AppSettings = {
     pomodoroAutoStart: true,
     quickAddDuration: 60,
     todoAutoRoll: true,
-    workDayStart: "09:00",
-    workDayEnd: "18:00",
+    workDayStart: '09:00',
+    workDayEnd: '18:00',
   },
 };
 
@@ -183,6 +214,42 @@ function mapCategoryFromApi(c: any): Category {
   return { ...c, color: c.color_hex };
 }
 
+function mapPlannedBlockFromApi(record: any): PlannedBlockRecord {
+  return {
+    id: record.id,
+    taskId: record.task_id,
+    eventId: record.event_id,
+    title: record.title,
+    start: record.start_ts,
+    end: record.end_ts,
+    completed: record.completed,
+    createdAt: record.created_at,
+  };
+}
+
+function mapPlannedBlockToApi(
+  request: CreatePlannedBlockRequest | UpdatePlannedBlockRequest
+): Record<string, unknown> {
+  const base: Record<string, unknown> = { ...request };
+  if ('taskId' in base) {
+    base.task_id = base.taskId ?? null;
+    delete base.taskId;
+  }
+  if ('eventId' in base) {
+    base.event_id = base.eventId ?? null;
+    delete base.eventId;
+  }
+  if ('start' in base) {
+    base.start_ts = base.start ?? null;
+    delete base.start;
+  }
+  if ('end' in base) {
+    base.end_ts = base.end ?? null;
+    delete base.end;
+  }
+  return base;
+}
+
 async function invokeOrThrow<T>(cmd: string, payload?: Record<string, unknown>): Promise<T> {
   const result = await safeInvoke<T>(cmd, payload);
   if (result === null) {
@@ -191,7 +258,6 @@ async function invokeOrThrow<T>(cmd: string, payload?: Record<string, unknown>):
   return result;
 }
 
-// Events API
 export async function getEvents(startDate?: string, endDate?: string): Promise<Event[]> {
   if (!isTauriEnvironment()) return [];
   const events = await invokeOrThrow<any[]>('events_list', { start: startDate, end: endDate });
@@ -239,7 +305,6 @@ export async function deleteEvent(id: number): Promise<void> {
   await invokeOrThrow<void>('events_delete', { id });
 }
 
-// Categories API
 export async function listCategories(): Promise<Category[]> {
   if (!isTauriEnvironment()) return [];
   const categories = await invokeOrThrow<any[]>('categories_list');
@@ -279,7 +344,6 @@ export async function deleteCategory(id: number): Promise<void> {
   await invokeOrThrow<void>('categories_delete', { id });
 }
 
-// Helper to map backend recurrence format to frontend format
 function mapRecurrenceFromApi(rec: any): Recurrence | null {
   if (!rec) return null;
   return {
@@ -289,17 +353,16 @@ function mapRecurrenceFromApi(rec: any): Recurrence | null {
   };
 }
 
-// Helper to map task from API (handles recurrence field conversion)
 function mapTaskFromApi(task: any): Task {
   let priority: TaskPriority = 'normal';
   if (task.priority) {
     if (task.priority === 'medium') {
-      priority = 'normal'; // Migrate old "medium" to "normal"
+      priority = 'normal';
     } else if (['low', 'normal', 'high', 'urgent'].includes(task.priority)) {
       priority = task.priority as TaskPriority;
     }
   }
-  
+
   return {
     id: task.id,
     title: task.title,
@@ -313,7 +376,6 @@ function mapTaskFromApi(task: any): Task {
   };
 }
 
-// Tasks API
 export async function listTasks(date?: string): Promise<Task[]> {
   if (!isTauriEnvironment()) return [];
   const parsedDate = date ? date.split('T')[0] : undefined;
@@ -343,7 +405,6 @@ export async function createTask(task: { title: string; date?: string | null; pr
       created_at: new Date().toISOString(),
     };
   }
-  // Map daysOfWeek to days_of_week for backend
   const payload: any = {
     title: task.title,
     date: task.date ? task.date.split('T')[0] : null,
@@ -433,7 +494,6 @@ export async function deleteTask(id: number): Promise<void> {
 
 export async function parseAndCreateTask(text: string): Promise<Task> {
   if (!isTauriEnvironment()) {
-    // Fallback: use frontend parser
     const { parseTextToTask } = await import('./nlp/taskParser');
     const parsed = parseTextToTask(text);
     return createTask({
@@ -447,7 +507,75 @@ export async function parseAndCreateTask(text: string): Promise<Task> {
   return mapTaskFromApi(result);
 }
 
-// Helper to map pomodoro session from API
+export async function createPlannedBlock(request: CreatePlannedBlockRequest): Promise<PlannedBlockRecord> {
+  if (!isTauriEnvironment()) {
+    const id = fallbackId();
+    const now = new Date().toISOString();
+    const record: PlannedBlockRecord = {
+      id,
+      taskId: request.taskId ?? null,
+      eventId: request.eventId ?? null,
+      title: request.title,
+      start: request.start,
+      end: request.end,
+      completed: request.completed ?? false,
+      createdAt: now,
+    };
+    fallbackPlannedBlocks.set(id, record);
+    return record;
+  }
+  const payload = mapPlannedBlockToApi(request);
+  const record = await invokeOrThrow<any>('createPlannedBlock', { payload });
+  return mapPlannedBlockFromApi(record);
+}
+
+export async function updatePlannedBlock(request: UpdatePlannedBlockRequest): Promise<PlannedBlockRecord> {
+  if (!isTauriEnvironment()) {
+    const existing = fallbackPlannedBlocks.get(request.id);
+    if (!existing) {
+      throw new Error(`Planned block ${request.id} not found`);
+    }
+    const updated: PlannedBlockRecord = {
+      ...existing,
+      taskId: request.taskId ?? existing.taskId,
+      eventId: request.eventId ?? existing.eventId,
+      title: request.title ?? existing.title,
+      start: request.start ?? existing.start,
+      end: request.end ?? existing.end,
+      completed: request.completed ?? existing.completed,
+    };
+    fallbackPlannedBlocks.set(request.id, updated);
+    return updated;
+  }
+  const payload = mapPlannedBlockToApi(request);
+  const record = await invokeOrThrow<any>('updatePlannedBlock', { payload });
+  return mapPlannedBlockFromApi(record);
+}
+
+export async function deletePlannedBlock(id: number): Promise<void> {
+  if (!isTauriEnvironment()) {
+    fallbackPlannedBlocks.delete(id);
+    return;
+  }
+  await invokeOrThrow<void>('deletePlannedBlock', { id });
+}
+
+export async function listPlannedBlocksRange(startDate?: string, endDate?: string): Promise<PlannedBlockRecord[]> {
+  if (!isTauriEnvironment()) {
+    const start = startDate ? new Date(startDate) : null;
+    const end = endDate ? new Date(endDate) : null;
+    return Array.from(fallbackPlannedBlocks.values()).filter((block) => {
+      const blockStart = new Date(block.start);
+      const blockEnd = new Date(block.end);
+      if (start && blockEnd < start) return false;
+      if (end && blockStart > end) return false;
+      return true;
+    });
+  }
+  const blocks = await invokeOrThrow<any[]>('listPlannedBlocksRange', { start: startDate, end: endDate });
+  return blocks.map(mapPlannedBlockFromApi);
+}
+
 function mapPomodoroFromApi(session: any): PomodoroSession {
   return {
     id: session.id,
@@ -460,7 +588,6 @@ function mapPomodoroFromApi(session: any): PomodoroSession {
   };
 }
 
-// Pomodoro API
 export async function logPomodoroSession(
   payload: NewPomodoroSessionPayload
 ): Promise<PomodoroSession> {
@@ -482,7 +609,7 @@ export async function logPomodoroSession(
     ended_at: payload.endedAt,
     duration_minutes: payload.durationMinutes,
     completed: payload.completed,
-  };
+  };    
   const result = await invokeOrThrow<any>('pomodoro_log_session', { payload: apiPayload });
   return mapPomodoroFromApi(result);
 }
@@ -499,7 +626,6 @@ export async function listPomodoroRange(startIso: string, endIso: string): Promi
   return sessions.map(mapPomodoroFromApi);
 }
 
-// Settings API
 export async function getSettings(): Promise<AppSettings> {
   if (!isTauriEnvironment()) return defaultAppSettings;
   return await invokeOrThrow<AppSettings>('settings_get');
@@ -510,7 +636,6 @@ export async function saveSettings(settings: AppSettings): Promise<AppSettings> 
   return await invokeOrThrow<AppSettings>('settings_save', { settings });
 }
 
-// Gmail sync
 export async function getAuthUrl(): Promise<{ url: string; state: string }> {
   if (!isTauriEnvironment()) return { url: '#', state: 'dev' };
   return await invokeOrThrow('gmail_get_auth_url');
@@ -536,4 +661,3 @@ export async function gmailStatus(): Promise<GmailStatus> {
   if (!isTauriEnvironment()) return { connected: false, lastSync: null, email: null };
   return await syncGmail(false);
 }
-

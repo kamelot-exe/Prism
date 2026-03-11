@@ -106,7 +106,7 @@
       const plannedEvent = autoScheduleTask(task, safeDate, existingBlocks, options);
       if (plannedEvent) {
         try {
-          plannedEventsStore.addBlock(plannedEvent);
+          await plannedEventsStore.addBlock(plannedEvent);
           existingBlocks.push({ ...plannedEvent, id: 'temp' });
           scheduled += 1;
         } catch {
@@ -139,7 +139,7 @@
     }
 
     try {
-      plannedEventsStore.addBlock(plannedEvent);
+      await plannedEventsStore.addBlock(plannedEvent);
     } catch (err) {
       toastStore.showError(err instanceof Error ? err.message : 'Could not create planned block');
       return;
@@ -161,12 +161,12 @@
     }
   }
 
-  function handleClearDayBlocks() {
+  async function handleClearDayBlocks() {
     if (!confirm('Clear all planned blocks for this day? Tasks and events will not be deleted.')) {
       return;
     }
 
-    plannedEventsStore.clearForDate(safeDate);
+    await plannedEventsStore.clearForDate(safeDate);
     toastStore.showSuccess('Planned blocks cleared');
   }
 
@@ -547,6 +547,7 @@
     }
   }
 </style>
+
 
 
 

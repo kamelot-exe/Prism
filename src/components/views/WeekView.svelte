@@ -115,7 +115,7 @@
         const plannedEvent = autoScheduleTask(task, day, currentBlocks, options);
         if (plannedEvent) {
           try {
-            plannedEventsStore.addBlock(plannedEvent);
+            await plannedEventsStore.addBlock(plannedEvent);
             currentBlocks.push({ ...plannedEvent, id: 'temp' });
             dayScheduled++;
           } catch {
@@ -448,3 +448,4 @@
     to { opacity: 1; transform: translateY(0); }
   }
 </style>
+

@@ -28,6 +28,7 @@ function createScheduleStore() {
       return taskDate.getTime() <= safeDate.getTime();
     });
 
+    await plannedEventsStore.ensureLoaded();
     const plannedBlocks = plannedEventsStore.blocksForDate(safeDate);
 
     await pomodoroStore.loadTodaySessions(safeDate);
@@ -62,3 +63,4 @@ function createScheduleStore() {
 }
 
 export const scheduleStore = createScheduleStore();
+

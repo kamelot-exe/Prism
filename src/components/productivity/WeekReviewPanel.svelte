@@ -160,7 +160,7 @@
       const plannedEvent = autoScheduleTask(task, safeSelectedDate, currentBlocks, options);
       if (plannedEvent) {
         try {
-          plannedEventsStore.addBlock(plannedEvent);
+          await plannedEventsStore.addBlock(plannedEvent);
           currentBlocks.push({ ...plannedEvent, id: 'temp' });
           scheduled++;
         } catch {
@@ -387,3 +387,4 @@
     }
   }
 </style>
+
