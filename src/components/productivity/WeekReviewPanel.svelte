@@ -7,6 +7,7 @@
   import { toastStore } from '../../stores/toastStore';
   import { normalizeDate } from '../../lib/dates/safeDate';
   import { autoScheduleTask } from '../../lib/scheduler/autoScheduler';
+  import { loadAutoScheduleOptionsForDate, loadTasksForDateRange } from '../../lib/scheduler/schedulerContext';
 
   export let weekStart: Date = new Date();
   export let selectedDate: Date = new Date();
@@ -19,7 +20,6 @@
 
   let allTasks: Task[] = [];
   let allBlocks: ReturnType<typeof plannedEventsStore.blocksForDate>[] = [];
-
 
   function normalizedDate(date: Date | string | null | undefined): string | null {
     if (!date) return null;
@@ -121,13 +121,7 @@
     .slice(0, 6);
 
   async function handleAutoScheduleSelectedDay() {
-    const dayTasks = allTasks.filter((task) => {
-      if (task.done) return false;
-      if (!task.date) return false;
-      const taskDate = normalizedDate(task.date);
-      const targetDate = normalizedDate(safeSelectedDate);
-      return taskDate === targetDate;
-    });
+    const dayTasks = (await loadTasksForDateRange(safeSelectedDate, safeSelectedDate)).filter((task) => !task.done);
 
     if (dayTasks.length === 0) {
       toastStore.showInfo('No pending tasks for selected day');
@@ -160,13 +154,18 @@
     let scheduled = 0;
     let failed = 0;
     const currentBlocks = [...existingBlocks];
+    const options = await loadAutoScheduleOptionsForDate(safeSelectedDate);
 
     for (const task of unscheduledTasks) {
-      const plannedEvent = autoScheduleTask(task, safeSelectedDate, currentBlocks);
+      const plannedEvent = autoScheduleTask(task, safeSelectedDate, currentBlocks, options);
       if (plannedEvent) {
-        plannedEventsStore.addBlock(plannedEvent);
-        currentBlocks.push({ ...plannedEvent, id: 'temp' });
-        scheduled++;
+        try {
+          plannedEventsStore.addBlock(plannedEvent);
+          currentBlocks.push({ ...plannedEvent, id: 'temp' });
+          scheduled++;
+        } catch {
+          failed++;
+        }
       } else {
         failed++;
       }
@@ -186,12 +185,11 @@
   <div class="header">
     <p class="eyebrow">Week Review</p>
     <h3>
-      {safeWeekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – 
+      {safeWeekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - 
       {new Date(safeWeekStart.getTime() + 6 * 24 * 60 * 60 * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
     </h3>
   </div>
 
-  <!-- Stat Cards -->
   <div class="stats-grid">
     <div class="stat-card">
       <div class="stat-value">{weekTotals.tasksDone}/{weekTotals.tasksTotal}</div>
@@ -207,7 +205,6 @@
     </div>
   </div>
 
-  <!-- Top Priorities -->
   {#if topPriorities.length > 0}
     <div class="section">
       <div class="section-header">
@@ -224,7 +221,6 @@
     </div>
   {/if}
 
-  <!-- Actions -->
   <div class="actions-section">
     <button class="btn-primary" on:click={handleAutoScheduleSelectedDay}>
       Auto-schedule for selected day
@@ -391,6 +387,3 @@
     }
   }
 </style>
-
-
-

@@ -9,6 +9,7 @@
   import { normalizeDate } from '../../lib/dates/safeDate';
   import { parseTextToTask } from '../../lib/nlp/taskParser';
   import { autoScheduleTask, autoScheduleTasksForDate } from '../../lib/scheduler/autoScheduler';
+  import { loadAutoScheduleOptionsForDate } from '../../lib/scheduler/schedulerContext';
   import { toastStore } from '../../stores/toastStore';
   import TaskEditorModal from './TaskEditorModal.svelte';
   import RecurrencePicker from './RecurrencePicker.svelte';
@@ -228,14 +229,15 @@
     }
   }
 
-  function handleAutoSchedule(task: Task) {
+  async function handleAutoSchedule(task: Task) {
     if (task.done) {
       toastStore.showError('Cannot schedule completed tasks');
       return;
     }
 
     const existingBlocks = plannedEventsStore.blocksForDate(safeDate);
-    const plannedEvent = autoScheduleTask(task, safeDate, existingBlocks);
+    const options = await loadAutoScheduleOptionsForDate(safeDate);
+    const plannedEvent = autoScheduleTask(task, safeDate, existingBlocks, options);
 
     if (!plannedEvent) {
       toastStore.showError('No free time slots available for this task');
@@ -265,18 +267,18 @@
     toastStore.showSuccess(`Focus session started for "${task.title}"`);
   }
 
-  function handleAutoScheduleAll() {
+  async function handleAutoScheduleAll() {
     const pendingTasks = tasks.filter((t) => !t.done);
-    
+
     if (pendingTasks.length === 0) {
       toastStore.showError('No pending tasks to schedule');
       return;
     }
 
     const existingBlocks = plannedEventsStore.blocksForDate(safeDate);
-    const result = autoScheduleTasksForDate(tasks, safeDate, existingBlocks);
+    const options = await loadAutoScheduleOptionsForDate(safeDate);
+    const result = autoScheduleTasksForDate(tasks, safeDate, existingBlocks, options);
 
-    // Add all scheduled blocks to store
     let scheduledCount = 0;
     let rejectedCount = 0;
     for (const block of result.scheduled) {
@@ -288,11 +290,10 @@
       }
     }
 
-    // Show summary toast
     const unscheduledCount = result.unscheduled.length + rejectedCount;
 
     if (scheduledCount === 0) {
-      toastStore.showError('No tasks could be scheduled — no free time available today.');
+      toastStore.showError('No tasks could be scheduled - no free time available today.');
     } else {
       const message = unscheduledCount > 0
         ? `Scheduled ${scheduledCount} task${scheduledCount !== 1 ? 's' : ''}. ${unscheduledCount} could not be scheduled (no free time left).`
@@ -798,5 +799,6 @@
   .muted { color: var(--text-muted); margin: 0; }
   .ghost.tiny { padding: 6px 8px; font-size: 0.9rem; }
 </style>
+
 
 

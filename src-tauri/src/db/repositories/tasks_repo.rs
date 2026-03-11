@@ -195,3 +195,31 @@ pub async fn toggle_task_done(
 
     Ok((updated, next_task))
 }
+
+pub async fn list_tasks_range(
+    pool: &SqlitePool,
+    start: Option<chrono::NaiveDate>,
+    end: Option<chrono::NaiveDate>,
+) -> Result<Vec<Task>, AppError> {
+    let rows = sqlx::query(
+        r#"SELECT id, title, done as "done: bool", date, priority, recurrence, estimated_minutes, is_focus, created_at
+           FROM tasks
+           WHERE date IS NOT NULL
+             AND (? IS NULL OR date >= ?)
+             AND (? IS NULL OR date <= ?)
+           ORDER BY date ASC, created_at DESC"#,
+    )
+    .bind(start)
+    .bind(start)
+    .bind(end)
+    .bind(end)
+    .fetch_all(pool)
+    .await?;
+
+    let mut result = Vec::new();
+    for row in rows {
+        result.push(map_row_to_task(row)?);
+    }
+
+    Ok(result)
+}

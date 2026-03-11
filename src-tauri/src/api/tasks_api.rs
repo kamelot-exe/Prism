@@ -33,6 +33,15 @@ pub async fn tasks_list(
 }
 
 #[tauri::command]
+pub async fn tasks_list_range(
+    pool: State<'_, DbPool>,
+    start: Option<NaiveDate>,
+    end: Option<NaiveDate>,
+) -> Result<Vec<Task>, AppError> {
+    tasks_repo::list_tasks_range(&pool, start, end).await
+}
+
+#[tauri::command]
 pub async fn tasks_create(pool: State<'_, DbPool>, mut payload: NewTask) -> Result<Task, AppError> {
     // Normalize priority
     payload.priority = Some(normalize_priority(payload.priority));
@@ -84,3 +93,4 @@ pub async fn task_parse_create(
     // Create task via repo
     tasks_repo::create_task(&pool, new_task).await
 }
+

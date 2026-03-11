@@ -7,6 +7,7 @@
   import { toastStore } from '../../stores/toastStore';
   import { normalizeDate } from '../../lib/dates/safeDate';
   import { autoScheduleTask } from '../../lib/scheduler/autoScheduler';
+  import { loadAutoScheduleOptionsForDate, loadTasksForDateRange } from '../../lib/scheduler/schedulerContext';
 
   export let selectedDate: Date = new Date();
 
@@ -77,7 +78,21 @@
   $: isEmpty = dateTasks.length === 0 && allBlocks.length === 0;
 
   async function handleAutoScheduleTopTasks() {
-    if (unscheduledUrgentHigh.length === 0) {
+    const freshTasks = await loadTasksForDateRange(safeDate, safeDate);
+    const dayScheduledTaskIds = new Set(plannedEventsStore.blocksForDate(safeDate).filter((b) => b.taskId).map((b) => b.taskId as number));
+    const candidateTasks = freshTasks
+      .filter((task) => !task.done)
+      .filter((task) => task.priority === 'urgent' || task.priority === 'high')
+      .filter((task) => task.id && !dayScheduledTaskIds.has(task.id))
+      .sort((a, b) => {
+        const priorityOrder: Record<string, number> = { urgent: 0, high: 1, normal: 2, low: 3 };
+        const aPriority = priorityOrder[a.priority ?? 'normal'] ?? 2;
+        const bPriority = priorityOrder[b.priority ?? 'normal'] ?? 2;
+        return aPriority - bPriority;
+      })
+      .slice(0, 5);
+
+    if (candidateTasks.length === 0) {
       toastStore.showInfo('No unscheduled urgent or high priority tasks');
       return;
     }
@@ -85,9 +100,10 @@
     let scheduled = 0;
     let failed = 0;
     const existingBlocks = plannedEventsStore.blocksForDate(safeDate);
+    const options = await loadAutoScheduleOptionsForDate(safeDate);
 
-    for (const task of unscheduledUrgentHigh) {
-      const plannedEvent = autoScheduleTask(task, safeDate, existingBlocks);
+    for (const task of candidateTasks) {
+      const plannedEvent = autoScheduleTask(task, safeDate, existingBlocks, options);
       if (plannedEvent) {
         try {
           plannedEventsStore.addBlock(plannedEvent);
@@ -114,7 +130,8 @@
     if (!task.id) return;
 
     const existingBlocks = plannedEventsStore.blocksForDate(safeDate);
-    const plannedEvent = autoScheduleTask(task, safeDate, existingBlocks);
+    const options = await loadAutoScheduleOptionsForDate(safeDate);
+    const plannedEvent = autoScheduleTask(task, safeDate, existingBlocks, options);
 
     if (!plannedEvent) {
       toastStore.showError('No free time slots available for this task');
@@ -530,5 +547,7 @@
     }
   }
 </style>
+
+
 
 

@@ -321,6 +321,14 @@ export async function listTasks(date?: string): Promise<Task[]> {
   return tasks.map(mapTaskFromApi);
 }
 
+export async function listTasksRange(startDate?: string, endDate?: string): Promise<Task[]> {
+  if (!isTauriEnvironment()) return [];
+  const start = startDate ? startDate.split('T')[0] : undefined;
+  const end = endDate ? endDate.split('T')[0] : undefined;
+  const tasks = await invokeOrThrow<any[]>('tasks_list_range', { start, end });
+  return tasks.map(mapTaskFromApi);
+}
+
 export async function createTask(task: { title: string; date?: string | null; priority?: TaskPriority; recurrence?: Recurrence | null; estimatedMinutes?: number; isFocus?: boolean }): Promise<Task> {
   if (!isTauriEnvironment()) {
     return {
@@ -528,3 +536,4 @@ export async function gmailStatus(): Promise<GmailStatus> {
   if (!isTauriEnvironment()) return { connected: false, lastSync: null, email: null };
   return await syncGmail(false);
 }
+

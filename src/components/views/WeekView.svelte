@@ -1,16 +1,15 @@
 <script lang="ts">
   import { onMount, onDestroy, createEventDispatcher } from 'svelte';
-  import { get } from 'svelte/store';
   import type { Event } from '../../lib/api';
   import { eventsStore } from '../../stores/eventsStore';
   import { hiddenCategoryIds } from '../../stores/categoryStore';
   import { normalizeDate } from '../../lib/dates/safeDate';
   import WeekReviewPanel from '../productivity/WeekReviewPanel.svelte';
-  import { tasksStore } from '../../stores/tasksStore';
   import { plannedEventsStore } from '../../stores/plannedEventsStore';
   import { toastStore } from '../../stores/toastStore';
   import { autoScheduleTask } from '../../lib/scheduler/autoScheduler';
   import { uiNavigationStore } from '../../stores/uiNavigationStore';
+  import { loadAutoScheduleOptionsForDate, loadTasksForDateRange } from '../../lib/scheduler/schedulerContext';
 
   export let currentDate: Date | undefined = new Date();
   export let searchQuery = '';
@@ -64,9 +63,9 @@
   }
 
   async function handleAutoScheduleWeek() {
-    const allTasks = get(tasksStore);
+    const freshTasks = await loadTasksForDateRange(weekDaysDates[0], weekDaysDates[weekDaysDates.length - 1]);
     const weekDateTimes = weekDaysDates.map((d) => normalizeDate(d).getTime());
-    const urgentHighTasks = allTasks.filter((task) => {
+    const urgentHighTasks = freshTasks.filter((task) => {
       if (task.done) return false;
       if (!task.date) return false;
       const taskDateTime = normalizeDate(task.date).getTime();
@@ -105,19 +104,15 @@
           const bPriority = priorityOrder[b.priority ?? 'normal'] ?? 2;
           return aPriority - bPriority;
         })
-        .slice(0, 2); // Max 2 tasks per day
+        .slice(0, 2);
 
       const currentBlocks = [...existingBlocks];
       let dayScheduled = 0;
       let dayFailed = 0;
+      const options = await loadAutoScheduleOptionsForDate(day);
 
       for (const task of unscheduledTasks) {
-        const dayStart = new Date(day);
-        dayStart.setHours(0, 0, 0, 0);
-        const dayEnd = new Date(day);
-        dayEnd.setHours(23, 59, 59, 999);
-        const dayEvents = eventsStore.eventsInRange(dayStart, dayEnd);
-        const plannedEvent = autoScheduleTask(task, day, currentBlocks, dayEvents);
+        const plannedEvent = autoScheduleTask(task, day, currentBlocks, options);
         if (plannedEvent) {
           try {
             plannedEventsStore.addBlock(plannedEvent);
@@ -173,8 +168,6 @@
       navigationUnsubscribe?.();
     };
     loadEvents();
-    // Load tasks for the week
-    tasksStore.loadAll();
   });
   onDestroy(() => {
     unsubscribe?.();
@@ -264,7 +257,6 @@
     {/each}
   </div>
 
-  <!-- Planner Overview -->
   <div class="planner-overview">
     <div class="planner-header">
       <h3>Week planning</h3>
@@ -456,7 +448,3 @@
     to { opacity: 1; transform: translateY(0); }
   }
 </style>
-
-
-
-

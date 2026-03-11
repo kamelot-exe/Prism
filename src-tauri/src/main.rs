@@ -45,6 +45,7 @@ async fn main() {
 
             // Tasks
             tasks_list,
+            tasks_list_range,
             tasks_create,
             tasks_update,
             tasks_toggle_done,
@@ -77,4 +78,6 @@ async fn main() {
         .run(tauri::generate_context!())
         .expect("error while running Prism Calendar");
 }
+
+
 
