@@ -239,11 +239,23 @@
   async function handleEventSave(event: CustomEvent<Event>) {
     const payload = event.detail;
     try {
-      if (payload.id) {
+      if (payload.recurrence_parent_id && payload.recurrence_occurrence_date && payload.recurrence_edit_scope === 'occurrence') {
+        await eventsStore.updateOccurrence(payload as any);
+      } else if (payload.id) {
         await eventsStore.update({ ...payload, id: payload.id });
       } else {
         await eventsStore.create(payload);
       }
+    } catch {
+      // errors are handled in the store toasts
+    }
+    eventModalOpen = false;
+    selectedEvent = null;
+  }
+
+  async function handleSkipOccurrence(event: CustomEvent<{ eventId: number; occurrenceDate: string }>) {
+    try {
+      await eventsStore.skipOccurrence(event.detail.eventId, event.detail.occurrenceDate);
     } catch {
       // errors are handled in the store toasts
     }
@@ -339,6 +351,7 @@
     event={selectedEvent}
     on:close={() => { eventModalOpen = false; selectedEvent = null; }}
     on:save={handleEventSave}
+    on:skipOccurrence={handleSkipOccurrence}
   />
   <ToastContainer />
   <FocusOverlay />

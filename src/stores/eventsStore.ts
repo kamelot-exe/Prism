@@ -1,10 +1,17 @@
 import { writable, get } from 'svelte/store';
-import type { Event, CreateEventRequest, UpdateEventRequest } from '../lib/api';
+import type {
+  Event,
+  CreateEventRequest,
+  UpdateEventRequest,
+  RecurrenceExceptionRecord,
+} from '../lib/api';
 import {
   createEvent as apiCreateEvent,
   updateEvent as apiUpdateEvent,
   deleteEvent as apiDeleteEvent,
   getEvents as apiGetEvents,
+  createRecurrenceException as apiCreateRecurrenceException,
+  listRecurrenceExceptions as apiListRecurrenceExceptions,
 } from '../lib/api';
 import {
   scheduleForEvent,
@@ -13,11 +20,13 @@ import {
   reloadAll as reloadReminders,
 } from '../lib/reminders/reminderScheduler';
 import { toastStore } from './toastStore';
+import { expandRecurringEvents } from '../lib/recurrence/expandRecurringEvents';
 
 type IsoString = string;
 
 interface EventCache {
   events: Map<number, Event>;
+  recurrenceExceptions: Map<number, RecurrenceExceptionRecord[]>;
   lastLoadedRange?: { start: IsoString; end: IsoString };
 }
 
@@ -44,12 +53,14 @@ function overlaps(event: Event, rangeStart: Date, rangeEnd: Date): boolean {
 }
 
 function normalizeEvent(e: Event): Event {
-  // Ensure ISO strings are preserved for consistency; Date objects are created ad hoc where needed.
-  return { ...e };
+  return { ...e, recurrence_edit_scope: e.recurrence_edit_scope ?? 'series' };
 }
 
 function createEventsStore() {
-  const { subscribe, update } = writable<EventCache>({ events: new Map() });
+  const { subscribe, update } = writable<EventCache>({
+    events: new Map(),
+    recurrenceExceptions: new Map(),
+  });
 
   const upsertMany = (list: Event[]) => {
     update((state) => {
@@ -61,11 +72,23 @@ function createEventsStore() {
     });
   };
 
+  const setExceptions = (entries: Array<[number, RecurrenceExceptionRecord[]]>) => {
+    update((state) => {
+      const next = new Map(state.recurrenceExceptions);
+      entries.forEach(([eventId, records]) => {
+        next.set(eventId, records);
+      });
+      return { ...state, recurrenceExceptions: next };
+    });
+  };
+
   const removeOne = (id: number) => {
     update((state) => {
       const nextEvents = new Map(state.events);
       nextEvents.delete(id);
-      return { ...state, events: nextEvents };
+      const nextExceptions = new Map(state.recurrenceExceptions);
+      nextExceptions.delete(id);
+      return { ...state, events: nextEvents, recurrenceExceptions: nextExceptions };
     });
   };
 
@@ -78,6 +101,12 @@ function createEventsStore() {
       const fetched = await apiGetEvents(startIso, endIso);
       upsertMany(fetched);
       fetched.forEach((ev) => scheduleForEvent(ev));
+
+      const recurringEvents = fetched.filter((event) => event.id != null && event.recurrence_rule);
+      const exceptions = await Promise.all(
+        recurringEvents.map(async (event) => [event.id as number, await apiListRecurrenceExceptions(event.id)] as [number, RecurrenceExceptionRecord[]])
+      );
+      setExceptions(exceptions);
       update((state) => ({ ...state, lastLoadedRange: { start: startIso, end: endIso } }));
       return fetched;
     } catch (error) {
@@ -91,7 +120,8 @@ function createEventsStore() {
     const state = get(store);
     const rangeStart = startOfDay(start);
     const rangeEnd = endOfDay(end);
-    return Array.from(state.events.values()).filter((ev) => overlaps(ev, rangeStart, rangeEnd));
+    return expandRecurringEvents(Array.from(state.events.values()), state.recurrenceExceptions, rangeStart, rangeEnd)
+      .filter((ev) => overlaps(ev, rangeStart, rangeEnd));
   };
 
   const getById = (id: number): Event | undefined => {
@@ -132,6 +162,43 @@ function createEventsStore() {
     }
   };
 
+  const updateOccurrence = async (payload: UpdateEventRequest): Promise<void> => {
+    if (!payload.recurrence_parent_id || !payload.recurrence_occurrence_date || !payload.start_time || !payload.end_time) {
+      toastStore.showError('Missing recurrence occurrence context');
+      return;
+    }
+
+    try {
+      await apiCreateRecurrenceException({
+        eventId: payload.recurrence_parent_id,
+        occurrenceDate: payload.recurrence_occurrence_date,
+        action: 'modify',
+        newStartTime: payload.start_time,
+        newEndTime: payload.end_time,
+      });
+      toastStore.showSuccess('Occurrence updated');
+      await reloadLastRange();
+    } catch (error) {
+      console.error('Failed to update recurrence occurrence', error);
+      toastStore.showError('Could not update occurrence');
+    }
+  };
+
+  const skipOccurrence = async (eventId: number, occurrenceDate: string): Promise<void> => {
+    try {
+      await apiCreateRecurrenceException({
+        eventId,
+        occurrenceDate,
+        action: 'skip',
+      });
+      toastStore.showSuccess('Occurrence skipped');
+      await reloadLastRange();
+    } catch (error) {
+      console.error('Failed to skip recurrence occurrence', error);
+      toastStore.showError('Could not skip occurrence');
+    }
+  };
+
   const deleteEvent = async (id: number): Promise<void> => {
     try {
       await apiDeleteEvent(id);
@@ -161,6 +228,8 @@ function createEventsStore() {
     getAll,
     create,
     update: updateEvent,
+    updateOccurrence,
+    skipOccurrence,
     delete: deleteEvent,
     reloadReminders,
     reloadLastRange,

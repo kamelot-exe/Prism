@@ -24,6 +24,9 @@ export interface Event {
   external_id?: string | null;
   created_at?: string;
   updated_at?: string;
+  recurrence_parent_id?: number;
+  recurrence_occurrence_date?: string;
+  recurrence_edit_scope?: 'series' | 'occurrence';
 }
 
 export interface CreateEventRequest {
@@ -49,6 +52,26 @@ export interface UpdateEventRequest {
   all_day?: boolean;
   recurrence_rule?: string | null;
   reminder_minutes?: number | null;
+  recurrence_edit_scope?: 'series' | 'occurrence';
+  recurrence_occurrence_date?: string;
+  recurrence_parent_id?: number;
+}
+
+export interface RecurrenceExceptionRecord {
+  id: number;
+  eventId: number;
+  occurrenceDate: string;
+  action: 'skip' | 'modify';
+  newStartTime?: string | null;
+  newEndTime?: string | null;
+}
+
+export interface CreateRecurrenceExceptionRequest {
+  eventId: number;
+  occurrenceDate: string;
+  action: 'skip' | 'modify';
+  newStartTime?: string | null;
+  newEndTime?: string | null;
 }
 
 export interface Recurrence {
@@ -182,6 +205,7 @@ export interface TokenInfo {
 const fallbackId = () => Math.floor(Date.now() + Math.random() * 1000);
 const fallbackPlannedBlocks = new Map<number, PlannedBlockRecord>();
 const fallbackFocusSessions = new Map<number, FocusSessionRecord>();
+const fallbackRecurrenceExceptions = new Map<number, RecurrenceExceptionRecord[]>();
 
 const defaultAppSettings: AppSettings = {
   theme: 'base',
@@ -282,6 +306,27 @@ function mapFocusSessionFromApi(record: any): FocusSessionRecord {
     startedAt: record.started_at,
     endedAt: record.ended_at,
     durationMinutes: record.duration_minutes,
+  };
+}
+
+function mapRecurrenceExceptionFromApi(record: any): RecurrenceExceptionRecord {
+  return {
+    id: record.id,
+    eventId: record.event_id,
+    occurrenceDate: record.occurrence_date,
+    action: record.action,
+    newStartTime: record.new_start_ts,
+    newEndTime: record.new_end_ts,
+  };
+}
+
+function mapRecurrenceExceptionToApi(request: CreateRecurrenceExceptionRequest): Record<string, unknown> {
+  return {
+    event_id: request.eventId,
+    occurrence_date: request.occurrenceDate,
+    action: request.action,
+    new_start_ts: request.newStartTime ?? null,
+    new_end_ts: request.newEndTime ?? null,
   };
 }
 
@@ -688,6 +733,40 @@ export async function listPomodoroRange(startIso: string, endIso: string): Promi
   return sessions.map(mapPomodoroFromApi);
 }
 
+export async function createRecurrenceException(request: CreateRecurrenceExceptionRequest): Promise<RecurrenceExceptionRecord> {
+  if (!isTauriEnvironment()) {
+    const id = fallbackId();
+    const record: RecurrenceExceptionRecord = {
+      id,
+      eventId: request.eventId,
+      occurrenceDate: request.occurrenceDate,
+      action: request.action,
+      newStartTime: request.newStartTime ?? null,
+      newEndTime: request.newEndTime ?? null,
+    };
+    const existing = fallbackRecurrenceExceptions.get(request.eventId) ?? [];
+    fallbackRecurrenceExceptions.set(
+      request.eventId,
+      [...existing.filter((item: RecurrenceExceptionRecord) => item.occurrenceDate !== request.occurrenceDate), record]
+    );
+    return record;
+  }
+  const payload = mapRecurrenceExceptionToApi(request);
+  const record = await invokeOrThrow<any>('createRecurrenceException', { payload });
+  return mapRecurrenceExceptionFromApi(record);
+}
+
+export async function listRecurrenceExceptions(eventId?: number): Promise<RecurrenceExceptionRecord[]> {
+  if (!isTauriEnvironment()) {
+    if (eventId == null) {
+      return Array.from(fallbackRecurrenceExceptions.values()).flat() as RecurrenceExceptionRecord[];
+    }
+    return fallbackRecurrenceExceptions.get(eventId) ?? [];
+  }
+  const records = await invokeOrThrow<any[]>('listRecurrenceExceptions', { event_id: eventId ?? null });
+  return records.map(mapRecurrenceExceptionFromApi);
+}
+
 export async function createFocusSession(request: CreateFocusSessionRequest): Promise<FocusSessionRecord> {
   if (!isTauriEnvironment()) {
     const id = fallbackId();
@@ -776,4 +855,6 @@ export async function gmailStatus(): Promise<GmailStatus> {
   if (!isTauriEnvironment()) return { connected: false, lastSync: null, email: null };
   return await syncGmail(false);
 }
+
+
 

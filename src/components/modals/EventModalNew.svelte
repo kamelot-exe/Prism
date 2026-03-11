@@ -7,9 +7,14 @@
   export let isOpen = false;
   export let event: CalendarEvent | null = null;
 
-  const dispatch = createEventDispatcher<{ save: CalendarEvent; close: void }>();
+  const dispatch = createEventDispatcher<{
+    save: CalendarEvent;
+    skipOccurrence: { eventId: number; occurrenceDate: string };
+    close: void;
+  }>();
 
   let categories: Category[] = [];
+  let applyScope: 'series' | 'occurrence' = 'series';
   let form: CalendarEvent = {
     title: '',
     description: '',
@@ -18,6 +23,7 @@
     category_id: null,
     recurrence_rule: '',
     reminder_minutes: null,
+    recurrence_edit_scope: 'series',
   };
 
   const reminders = [
@@ -75,12 +81,16 @@
     return unsubscribe;
   });
 
+  $: isRecurringOccurrence = Boolean(event?.recurrence_parent_id && event?.recurrence_occurrence_date);
+
   $: if (isOpen) {
+    applyScope = isRecurringOccurrence ? 'occurrence' : 'series';
     form = event
       ? {
           ...event,
           start_time: toLocalInputValue(event.start_time),
           end_time: toLocalInputValue(event.end_time),
+          recurrence_edit_scope: isRecurringOccurrence ? 'occurrence' : 'series',
         }
       : {
           title: '',
@@ -90,6 +100,7 @@
           category_id: null,
           recurrence_rule: '',
           reminder_minutes: null,
+          recurrence_edit_scope: 'series',
         };
   }
 
@@ -125,7 +136,22 @@
       isSaving = false;
       return;
     }
-    dispatch('save', { ...form, start_time: startIso, end_time: endIso });
+    dispatch('save', {
+      ...form,
+      start_time: startIso,
+      end_time: endIso,
+      recurrence_edit_scope: applyScope,
+    });
+  }
+
+  function handleSkipOccurrence() {
+    if (!event?.recurrence_parent_id || !event?.recurrence_occurrence_date) {
+      return;
+    }
+    dispatch('skipOccurrence', {
+      eventId: event.recurrence_parent_id,
+      occurrenceDate: event.recurrence_occurrence_date,
+    });
   }
 
   $: if (isOpen) {
@@ -158,6 +184,19 @@
       </div>
       <button class="ghost" on:click={close}>Close</button>
     </header>
+
+    {#if isRecurringOccurrence}
+      <div class="occurrence-note">
+        <p class="scope-copy">This event comes from a recurring series.</p>
+        <label>
+          <span>Apply changes to</span>
+          <select bind:value={applyScope}>
+            <option value="occurrence">This occurrence</option>
+            <option value="series">Entire series</option>
+          </select>
+        </label>
+      </div>
+    {/if}
 
     <div class="grid">
       <label class="full">
@@ -195,7 +234,7 @@
       </label>
       <label>
         <span>Recurrence</span>
-        <select bind:value={form.recurrence_rule} on:change={handleRecurrenceChange}>
+        <select bind:value={form.recurrence_rule} on:change={handleRecurrenceChange} disabled={applyScope === 'occurrence'}>
           {#each recurrences as option}
             <option value={option.value}>{option.label}</option>
           {/each}
@@ -203,17 +242,20 @@
       </label>
     </div>
 
-  {#if validationError}
-    <p class="validation-error" role="alert">{validationError}</p>
-  {/if}
+    {#if validationError}
+      <p class="validation-error" role="alert">{validationError}</p>
+    {/if}
 
-  <footer>
-    <button class="ghost" on:click={close}>Cancel</button>
-    <button class="primary" on:click={() => { isSaving = true; save(); }} disabled={isSaving} aria-busy={isSaving}>
-      {#if isSaving}<span class="spinner"></span>{/if}
-      <span>Save</span>
-    </button>
-  </footer>
+    <footer class:is-occurrence={isRecurringOccurrence}>
+      {#if isRecurringOccurrence && applyScope === 'occurrence'}
+        <button class="ghost warn" on:click={handleSkipOccurrence}>Skip this occurrence</button>
+      {/if}
+      <button class="ghost" on:click={close}>Cancel</button>
+      <button class="primary" on:click={() => { isSaving = true; save(); }} disabled={isSaving} aria-busy={isSaving}>
+        {#if isSaving}<span class="spinner"></span>{/if}
+        <span>Save</span>
+      </button>
+    </footer>
   </div>
 </div>
 {/if}
@@ -242,6 +284,20 @@
   header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
   .eyebrow { margin: 0; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); font-size: 0.8rem; }
   h2 { margin: 0.1rem 0 0 0; }
+  .occurrence-note {
+    margin-top: 14px;
+    padding: 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--surface-1);
+    display: grid;
+    gap: 10px;
+  }
+  .scope-copy {
+    margin: 0;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+  }
   .grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
@@ -276,6 +332,9 @@
     gap: 10px;
     margin-top: 14px;
   }
+  footer.is-occurrence {
+    justify-content: space-between;
+  }
   .ghost, .primary {
     border-radius: var(--radius-md);
     padding: 12px 14px;
@@ -286,6 +345,7 @@
   }
   .ghost { background: var(--surface-1); color: var(--text); }
   .ghost:hover { background: var(--surface-0); border-color: var(--border-light); box-shadow: var(--shadow-sm); }
+  .ghost.warn { color: #ef4444; border-color: rgba(239, 68, 68, 0.4); }
   .primary {
     background: linear-gradient(135deg, var(--accent-2, var(--accent)), var(--accent));
     color: var(--text);

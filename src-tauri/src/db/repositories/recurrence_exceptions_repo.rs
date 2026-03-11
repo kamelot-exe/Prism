@@ -11,7 +11,10 @@ pub async fn create_recurrence_exception(
 ) -> Result<RecurrenceException, AppError> {
     let id = sqlx::query_scalar::<_, i64>(
         r#"INSERT INTO recurrence_exceptions(event_id, occurrence_date, action, new_start_ts, new_end_ts)
-           VALUES (?, ?, ?, ?, ?) RETURNING id"#,
+           VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT(event_id, occurrence_date)
+           DO UPDATE SET action = excluded.action, new_start_ts = excluded.new_start_ts, new_end_ts = excluded.new_end_ts
+           RETURNING id"#,
     )
     .bind(payload.event_id)
     .bind(payload.occurrence_date)
