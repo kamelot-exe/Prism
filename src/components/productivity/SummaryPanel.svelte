@@ -10,6 +10,7 @@
   import { suggestionsStore } from '../../stores/suggestionsStore';
   import { scheduleStore } from '../../stores/scheduleStore';
   import { get } from 'svelte/store';
+  import { listFocusSessionsRange, type FocusSessionRecord } from '../../lib/api';
 
   export let selectedDate: Date | string | null | undefined = new Date();
 
@@ -25,6 +26,7 @@
   let unsubscribeSchedule: (() => void) | null = null;
   let suggestions: any[] = [];
   let scheduleBlocks: any[] = [];
+  let trackedFocusSessions: FocusSessionRecord[] = [];
 
   onMount(() => {
     // Subscribe to stores to trigger reactivity
@@ -50,6 +52,7 @@
     
     // Load today's pomodoro sessions
     pomodoroStore.loadTodaySessions(safeDate);
+    loadTrackedFocusSessions();
   });
 
   onDestroy(() => {
@@ -67,6 +70,7 @@
   // Reactive summary data - always defined
   // Recomputes when safeDate or storeVersion changes
   $: summary = getSummaryForDate(safeDate);
+  $: safeDate, loadTrackedFocusSessions();
 
   // Animated progress values
   const progressPercent = tweened(0, { duration: 300, easing: (t) => t * (2 - t) });
@@ -101,6 +105,20 @@
   // Refresh suggestions when data changes
   $: if (safeDate) {
     suggestionsStore.refreshSuggestions(safeDate);
+  }
+
+
+  async function loadTrackedFocusSessions() {
+    const start = new Date(safeDate);
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(safeDate);
+    end.setHours(23, 59, 59, 999);
+    try {
+      trackedFocusSessions = await listFocusSessionsRange(start.toISOString(), end.toISOString());
+    } catch (err) {
+      console.error('[SummaryPanel] Failed to load focus sessions', err);
+      trackedFocusSessions = [];
+    }
   }
 
   // Date label for display
@@ -155,8 +173,10 @@
   // Pomodoro statistics
   let todaySessionsList: any[] = [];
   $: todaySessionsList = get(pomodoroStore.todaySessions) || [];
-  $: focusSessions = todaySessionsList.filter((s: any) => s.kind === 'focus' && s.completed);
-  $: focusMinutes = focusSessions.reduce((sum: number, s: any) => sum + s.durationMinutes, 0);
+  $: pomodoroFocusSessions = todaySessionsList.filter((s: any) => s.kind === 'focus' && s.completed);
+  $: focusSessions = trackedFocusSessions;
+  $: totalTrackedFocusSessions = pomodoroFocusSessions.length + focusSessions.length;
+  $: focusMinutes = pomodoroFocusSessions.reduce((sum: number, s: any) => sum + s.durationMinutes, 0) + focusSessions.reduce((sum: number, s: FocusSessionRecord) => sum + (s.durationMinutes ?? 0), 0);
   $: breakMinutes = todaySessionsList
     .filter((s: any) => s.kind === 'break' && s.completed)
     .reduce((sum: number, s: any) => sum + s.durationMinutes, 0);
@@ -190,7 +210,7 @@
 
     <!-- Schedule Status Section -->
     <div class="section schedule-status-section">
-      <p class="data-note">Schedule and focus metrics are partial here: planned work comes from visible blocks, while actual work currently reflects tracked Pomodoro sessions.</p>
+      <p class="data-note">Schedule metrics use visible suggested blocks. Actual focus metrics combine tracked Pomodoro focus sessions and tracked focus sessions; untracked work is still excluded.</p>
       {#if scheduleBlocks.length > 0}
         <p class="schedule-status">
           <span class="schedule-indicator">✓</span>
@@ -270,7 +290,7 @@
       <h5 class="section-title">Focus</h5>
       <div class="focus-stats">
         <div class="focus-stat-item">
-          <span class="focus-value">{focusSessions.length}</span>
+          <span class="focus-value">{totalTrackedFocusSessions}</span>
           <span class="focus-label">focus sessions</span>
         </div>
         <div class="focus-stat-item">

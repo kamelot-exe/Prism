@@ -63,6 +63,9 @@
     source: null,
     sourceId: null,
     title: '',
+    taskId: null,
+    plannedBlockId: null,
+    backendSessionId: null,
   };
 
   $: hasActiveSession = session.state === 'running' || session.state === 'paused';

@@ -76,6 +76,29 @@ export interface NewPomodoroSessionPayload {
   endedAt?: string | null;
 }
 
+export interface FocusSessionRecord {
+  id: number;
+  taskId?: number | null;
+  plannedBlockId?: number | null;
+  startedAt: string;
+  endedAt?: string | null;
+  durationMinutes?: number | null;
+}
+
+export interface CreateFocusSessionRequest {
+  taskId?: number | null;
+  plannedBlockId?: number | null;
+  startedAt: string;
+  endedAt?: string | null;
+  durationMinutes?: number | null;
+}
+
+export interface CompleteFocusSessionRequest {
+  id: number;
+  endedAt?: string | null;
+  durationMinutes?: number | null;
+}
+
 export interface PlannedBlockRecord {
   id: number;
   taskId?: number | null;
@@ -158,6 +181,7 @@ export interface TokenInfo {
 
 const fallbackId = () => Math.floor(Date.now() + Math.random() * 1000);
 const fallbackPlannedBlocks = new Map<number, PlannedBlockRecord>();
+const fallbackFocusSessions = new Map<number, FocusSessionRecord>();
 
 const defaultAppSettings: AppSettings = {
   theme: 'base',
@@ -246,6 +270,44 @@ function mapPlannedBlockToApi(
   if ('end' in base) {
     base.end_ts = base.end ?? null;
     delete base.end;
+  }
+  return base;
+}
+
+function mapFocusSessionFromApi(record: any): FocusSessionRecord {
+  return {
+    id: record.id,
+    taskId: record.task_id,
+    plannedBlockId: record.planned_block_id,
+    startedAt: record.started_at,
+    endedAt: record.ended_at,
+    durationMinutes: record.duration_minutes,
+  };
+}
+
+function mapFocusSessionToApi(
+  request: CreateFocusSessionRequest | CompleteFocusSessionRequest
+): Record<string, unknown> {
+  const base: Record<string, unknown> = { ...request };
+  if ('taskId' in base) {
+    base.task_id = base.taskId ?? null;
+    delete base.taskId;
+  }
+  if ('plannedBlockId' in base) {
+    base.planned_block_id = base.plannedBlockId ?? null;
+    delete base.plannedBlockId;
+  }
+  if ('startedAt' in base) {
+    base.started_at = base.startedAt ?? null;
+    delete base.startedAt;
+  }
+  if ('endedAt' in base) {
+    base.ended_at = base.endedAt ?? null;
+    delete base.endedAt;
+  }
+  if ('durationMinutes' in base) {
+    base.duration_minutes = base.durationMinutes ?? null;
+    delete base.durationMinutes;
   }
   return base;
 }
@@ -626,6 +688,59 @@ export async function listPomodoroRange(startIso: string, endIso: string): Promi
   return sessions.map(mapPomodoroFromApi);
 }
 
+export async function createFocusSession(request: CreateFocusSessionRequest): Promise<FocusSessionRecord> {
+  if (!isTauriEnvironment()) {
+    const id = fallbackId();
+    const record: FocusSessionRecord = {
+      id,
+      taskId: request.taskId ?? null,
+      plannedBlockId: request.plannedBlockId ?? null,
+      startedAt: request.startedAt,
+      endedAt: request.endedAt ?? null,
+      durationMinutes: request.durationMinutes ?? null,
+    };
+    fallbackFocusSessions.set(id, record);
+    return record;
+  }
+  const payload = mapFocusSessionToApi(request);
+  const record = await invokeOrThrow<any>('createFocusSession', { payload });
+  return mapFocusSessionFromApi(record);
+}
+
+export async function completeFocusSession(request: CompleteFocusSessionRequest): Promise<FocusSessionRecord> {
+  if (!isTauriEnvironment()) {
+    const existing = fallbackFocusSessions.get(request.id);
+    if (!existing) {
+      throw new Error(`Focus session ${request.id} not found`);
+    }
+    const updated: FocusSessionRecord = {
+      ...existing,
+      endedAt: request.endedAt ?? existing.endedAt ?? new Date().toISOString(),
+      durationMinutes: request.durationMinutes ?? existing.durationMinutes ?? null,
+    };
+    fallbackFocusSessions.set(request.id, updated);
+    return updated;
+  }
+  const payload = mapFocusSessionToApi(request);
+  const record = await invokeOrThrow<any>('completeFocusSession', { payload });
+  return mapFocusSessionFromApi(record);
+}
+
+export async function listFocusSessionsRange(startIso?: string, endIso?: string): Promise<FocusSessionRecord[]> {
+  if (!isTauriEnvironment()) {
+    const start = startIso ? new Date(startIso) : null;
+    const end = endIso ? new Date(endIso) : null;
+    return Array.from(fallbackFocusSessions.values()).filter((session) => {
+      const startedAt = new Date(session.startedAt);
+      if (start && startedAt < start) return false;
+      if (end && startedAt > end) return false;
+      return true;
+    });
+  }
+  const sessions = await invokeOrThrow<any[]>('listFocusSessionsRange', { start: startIso, end: endIso });
+  return sessions.map(mapFocusSessionFromApi);
+}
+
 export async function getSettings(): Promise<AppSettings> {
   if (!isTauriEnvironment()) return defaultAppSettings;
   return await invokeOrThrow<AppSettings>('settings_get');
@@ -661,3 +776,4 @@ export async function gmailStatus(): Promise<GmailStatus> {
   if (!isTauriEnvironment()) return { connected: false, lastSync: null, email: null };
   return await syncGmail(false);
 }
+

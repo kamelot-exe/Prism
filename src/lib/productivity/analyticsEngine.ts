@@ -1,55 +1,46 @@
-/**
- * Productivity Analytics Engine
- *
- * Computes "planned vs. actual" time usage and other productivity metrics
- * for a given date range, combining Tasks, PlannedEvents, and PomodoroSessions.
- */
-
-import type { Task, PomodoroSession } from '../api';
+import type { Task, PomodoroSession, FocusSessionRecord } from '../api';
 import type { PlannedEvent } from '../../stores/plannedEventsStore';
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-
 export interface DayAnalytics {
-  date: string; // YYYY-MM-DD
-  /** Minutes estimated for all tasks due that day */
+  date: string;
   plannedMinutes: number;
-  /** Minutes actually scheduled in the day planner */
   scheduledMinutes: number;
-  /** Minutes tracked via completed Pomodoro focus sessions */
   actualFocusMinutes: number;
-  /** Number of tasks due that day */
+  linkedActualMinutes: number;
+  unlinkedActualMinutes: number;
   totalTasks: number;
-  /** Number of tasks completed */
   completedTasks: number;
-  /** Completion rate 0–100 */
   completionRate: number;
-  /** Focus efficiency: actualFocusMinutes / scheduledMinutes, capped at 1 */
   focusEfficiency: number;
 }
 
 export interface WeekAnalytics {
-  weekStart: string; // YYYY-MM-DD (Monday)
-  weekEnd: string;   // YYYY-MM-DD (Sunday)
+  weekStart: string;
+  weekEnd: string;
   days: DayAnalytics[];
   totals: {
     plannedMinutes: number;
     scheduledMinutes: number;
     actualFocusMinutes: number;
+    linkedActualMinutes: number;
+    unlinkedActualMinutes: number;
     totalTasks: number;
     completedTasks: number;
     completionRate: number;
     avgFocusEfficiency: number;
   };
-  /** Best performing day (highest completionRate) */
   bestDay: DayAnalytics | null;
-  /** Day with the most actual focus time */
   mostFocusedDay: DayAnalytics | null;
-  /** Trend vs. previous week (positive = better) */
   completionRateDelta?: number;
+  caveats: string[];
 }
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+type ActualFocusEntry = {
+  startedAt: string;
+  durationMinutes: number;
+  taskId?: number | null;
+  plannedBlockId?: number | null;
+};
 
 function toDateStr(date: Date | string): string {
   const d = typeof date === 'string' ? new Date(date) : date;
@@ -65,80 +56,85 @@ function addDays(date: Date, n: number): Date {
   return d;
 }
 
-/**
- * Get the Monday of the week containing `date`.
- */
 export function weekStartFor(date: Date): Date {
   const d = new Date(date);
   d.setHours(0, 0, 0, 0);
-  const dow = d.getDay(); // 0 = Sunday
+  const dow = d.getDay();
   const diff = dow === 0 ? -6 : 1 - dow;
   d.setDate(d.getDate() + diff);
   return d;
 }
 
-/**
- * Generate a list of YYYY-MM-DD strings for the 7 days starting from `start`.
- */
 function weekDates(start: Date): string[] {
   return Array.from({ length: 7 }, (_, i) => toDateStr(addDays(start, i)));
 }
 
-// ─── Core computation ─────────────────────────────────────────────────────────
+function toActualFocusEntries(
+  pomodoroSessions: PomodoroSession[],
+  focusSessions: FocusSessionRecord[]
+): ActualFocusEntry[] {
+  const pomodoroEntries = pomodoroSessions
+    .filter((session) => session.kind === 'focus' && session.completed && session.durationMinutes > 0)
+    .map((session) => ({
+      startedAt: session.startedAt,
+      durationMinutes: session.durationMinutes,
+      taskId: session.taskId ?? null,
+      plannedBlockId: null,
+    }));
 
-/**
- * Compute analytics for a single day.
- */
+  const focusEntries = focusSessions
+    .filter((session) => (session.durationMinutes ?? 0) > 0)
+    .map((session) => ({
+      startedAt: session.startedAt,
+      durationMinutes: session.durationMinutes ?? 0,
+      taskId: session.taskId ?? null,
+      plannedBlockId: session.plannedBlockId ?? null,
+    }));
+
+  return [...pomodoroEntries, ...focusEntries];
+}
+
 export function computeDayAnalytics(
   dateStr: string,
   tasks: Task[],
   plannedBlocks: PlannedEvent[],
-  pomodoroSessions: PomodoroSession[]
+  pomodoroSessions: PomodoroSession[],
+  focusSessions: FocusSessionRecord[] = []
 ): DayAnalytics {
-  // Tasks for this day
-  const dayTasks = tasks.filter((t) => {
-    if (!t.date) return false;
-    return toDateStr(t.date) === dateStr;
-  });
-
-  const plannedMinutes = dayTasks.reduce(
-    (sum, t) => sum + (t.estimatedMinutes ?? 30),
-    0
-  );
+  const dayTasks = tasks.filter((task) => task.date && toDateStr(task.date) === dateStr);
+  const plannedMinutes = dayTasks.reduce((sum, task) => sum + Math.max(0, task.estimatedMinutes ?? 30), 0);
   const totalTasks = dayTasks.length;
-  const completedTasks = dayTasks.filter((t) => t.done).length;
+  const completedTasks = dayTasks.filter((task) => task.done).length;
   const completionRate = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
 
-  // Scheduled minutes from planner blocks
-  const dayBlocks = plannedBlocks.filter((b) => toDateStr(b.start) === dateStr);
+  const dayBlocks = plannedBlocks.filter((block) => toDateStr(block.start) === dateStr);
   const scheduledMinutes = Math.round(
-    dayBlocks.reduce(
-      (sum, b) => sum + (b.end.getTime() - b.start.getTime()) / 60000,
-      0
-    )
+    dayBlocks.reduce((sum, block) => sum + (block.end.getTime() - block.start.getTime()) / 60000, 0)
   );
 
-  // Actual focus minutes from completed Pomodoro sessions
-  const dayFocusSessions = pomodoroSessions.filter(
-    (s) => s.kind === 'focus' && s.completed && toDateStr(s.startedAt) === dateStr
+  const actualEntries = toActualFocusEntries(pomodoroSessions, focusSessions).filter(
+    (entry) => toDateStr(entry.startedAt) === dateStr
   );
-  const actualFocusMinutes = dayFocusSessions.reduce(
-    (sum, s) => sum + s.durationMinutes,
-    0
-  );
+  const actualFocusMinutes = actualEntries.reduce((sum, entry) => sum + entry.durationMinutes, 0);
+  const linkedActualMinutes = actualEntries
+    .filter((entry) => entry.taskId != null || entry.plannedBlockId != null)
+    .reduce((sum, entry) => sum + entry.durationMinutes, 0);
+  const unlinkedActualMinutes = actualFocusMinutes - linkedActualMinutes;
 
   const focusEfficiency =
     scheduledMinutes > 0
       ? Math.min(1, actualFocusMinutes / scheduledMinutes)
       : actualFocusMinutes > 0
-      ? 1
-      : 0;
+        ? 1
+        : 0;
 
   return {
     date: dateStr,
     plannedMinutes,
     scheduledMinutes,
     actualFocusMinutes,
+    linkedActualMinutes,
+    unlinkedActualMinutes,
     totalTasks,
     completedTasks,
     completionRate,
@@ -146,67 +142,70 @@ export function computeDayAnalytics(
   };
 }
 
-/**
- * Compute full week analytics.
- */
 export function computeWeekAnalytics(
   weekStart: Date,
   tasks: Task[],
   plannedBlocks: PlannedEvent[],
   pomodoroSessions: PomodoroSession[],
+  focusSessions: FocusSessionRecord[] = [],
   previousWeekCompletionRate?: number
 ): WeekAnalytics {
   const weekStartStr = toDateStr(weekStart);
-  const weekEndDate = addDays(weekStart, 6);
-  const weekEndStr = toDateStr(weekEndDate);
+  const weekEndStr = toDateStr(addDays(weekStart, 6));
   const dates = weekDates(weekStart);
 
-  const days: DayAnalytics[] = dates.map((d) =>
-    computeDayAnalytics(d, tasks, plannedBlocks, pomodoroSessions)
-  );
+  const days = dates.map((date) => computeDayAnalytics(date, tasks, plannedBlocks, pomodoroSessions, focusSessions));
 
   const totals = days.reduce(
-    (acc, d) => ({
-      plannedMinutes: acc.plannedMinutes + d.plannedMinutes,
-      scheduledMinutes: acc.scheduledMinutes + d.scheduledMinutes,
-      actualFocusMinutes: acc.actualFocusMinutes + d.actualFocusMinutes,
-      totalTasks: acc.totalTasks + d.totalTasks,
-      completedTasks: acc.completedTasks + d.completedTasks,
+    (acc, day) => ({
+      plannedMinutes: acc.plannedMinutes + day.plannedMinutes,
+      scheduledMinutes: acc.scheduledMinutes + day.scheduledMinutes,
+      actualFocusMinutes: acc.actualFocusMinutes + day.actualFocusMinutes,
+      linkedActualMinutes: acc.linkedActualMinutes + day.linkedActualMinutes,
+      unlinkedActualMinutes: acc.unlinkedActualMinutes + day.unlinkedActualMinutes,
+      totalTasks: acc.totalTasks + day.totalTasks,
+      completedTasks: acc.completedTasks + day.completedTasks,
     }),
-    { plannedMinutes: 0, scheduledMinutes: 0, actualFocusMinutes: 0, totalTasks: 0, completedTasks: 0 }
+    {
+      plannedMinutes: 0,
+      scheduledMinutes: 0,
+      actualFocusMinutes: 0,
+      linkedActualMinutes: 0,
+      unlinkedActualMinutes: 0,
+      totalTasks: 0,
+      completedTasks: 0,
+    }
   );
 
   const overallCompletionRate =
-    totals.totalTasks > 0
-      ? Math.round((totals.completedTasks / totals.totalTasks) * 100)
-      : 0;
+    totals.totalTasks > 0 ? Math.round((totals.completedTasks / totals.totalTasks) * 100) : 0;
 
-  const daysWithFocus = days.filter((d) => d.scheduledMinutes > 0 || d.actualFocusMinutes > 0);
+  const daysWithFocus = days.filter((day) => day.scheduledMinutes > 0 || day.actualFocusMinutes > 0);
   const avgFocusEfficiency =
     daysWithFocus.length > 0
-      ? Math.round(
-          (daysWithFocus.reduce((s, d) => s + d.focusEfficiency, 0) / daysWithFocus.length) * 100
-        )
+      ? Math.round((daysWithFocus.reduce((sum, day) => sum + day.focusEfficiency, 0) / daysWithFocus.length) * 100)
       : 0;
 
-  const daysWithTasks = days.filter((d) => d.totalTasks > 0);
-  const bestDay =
-    daysWithTasks.length > 0
-      ? daysWithTasks.reduce((best, d) => (d.completionRate >= best.completionRate ? d : best))
-      : null;
+  const daysWithTasks = days.filter((day) => day.totalTasks > 0);
+  const bestDay = daysWithTasks.length > 0
+    ? daysWithTasks.reduce((best, day) => (day.completionRate >= best.completionRate ? day : best))
+    : null;
 
-  const daysWithFocusSessions = days.filter((d) => d.actualFocusMinutes > 0);
-  const mostFocusedDay =
-    daysWithFocusSessions.length > 0
-      ? daysWithFocusSessions.reduce((best, d) =>
-          d.actualFocusMinutes >= best.actualFocusMinutes ? d : best
-        )
-      : null;
+  const daysWithTrackedFocus = days.filter((day) => day.actualFocusMinutes > 0);
+  const mostFocusedDay = daysWithTrackedFocus.length > 0
+    ? daysWithTrackedFocus.reduce((best, day) => (day.actualFocusMinutes >= best.actualFocusMinutes ? day : best))
+    : null;
 
   const completionRateDelta =
-    previousWeekCompletionRate !== undefined
-      ? overallCompletionRate - previousWeekCompletionRate
-      : undefined;
+    previousWeekCompletionRate !== undefined ? overallCompletionRate - previousWeekCompletionRate : undefined;
+
+  const caveats: string[] = [];
+  caveats.push('Planned time comes from planned blocks.');
+  caveats.push('Actual time combines tracked Pomodoro focus sessions and tracked focus sessions.');
+  if (totals.unlinkedActualMinutes > 0) {
+    caveats.push('Some tracked focus time is not linked to a task or planned block.');
+  }
+  caveats.push('Untracked work is not included, and overlapping timers can overstate actual time.');
 
   return {
     weekStart: weekStartStr,
@@ -220,12 +219,10 @@ export function computeWeekAnalytics(
     bestDay,
     mostFocusedDay,
     completionRateDelta,
+    caveats,
   };
 }
 
-/**
- * Format minutes to "Xh Ym" or "Ym" string.
- */
 export function formatMinutes(minutes: number): string {
   if (minutes <= 0) return '0m';
   const h = Math.floor(minutes / 60);
@@ -235,9 +232,6 @@ export function formatMinutes(minutes: number): string {
   return `${h}h ${m}m`;
 }
 
-/**
- * Return a qualitative label for a completion rate.
- */
 export function rateLabel(rate: number): string {
   if (rate >= 90) return 'Excellent';
   if (rate >= 70) return 'Good';
@@ -246,9 +240,6 @@ export function rateLabel(rate: number): string {
   return 'Behind';
 }
 
-/**
- * Return a qualitative label for focus efficiency (0-1 float).
- */
 export function efficiencyLabel(efficiency: number): string {
   if (efficiency >= 0.9) return 'On target';
   if (efficiency >= 0.7) return 'Good';

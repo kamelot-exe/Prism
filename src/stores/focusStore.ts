@@ -2,6 +2,8 @@ import { writable, get } from 'svelte/store';
 import { settingsStore } from './settings';
 import { notify } from '../lib/notifications/notificationAdapter';
 import { toastStore } from './toastStore';
+import { createFocusSession, completeFocusSession } from '../lib/api';
+import { plannedEventsStore } from './plannedEventsStore';
 
 export interface FocusSession {
   state: 'idle' | 'running' | 'paused';
@@ -11,9 +13,27 @@ export interface FocusSession {
   source: 'task' | 'block' | null;
   sourceId: number | string | null;
   title: string;
+  taskId: number | null;
+  plannedBlockId: number | null;
+  backendSessionId: number | null;
 }
 
 const STORAGE_KEY = 'prism_focus_session';
+
+function createIdleSession(): FocusSession {
+  return {
+    state: 'idle',
+    startedAt: null,
+    endsAt: null,
+    remainingMs: 0,
+    source: null,
+    sourceId: null,
+    title: '',
+    taskId: null,
+    plannedBlockId: null,
+    backendSessionId: null,
+  };
+}
 
 function loadFromStorage(): FocusSession | null {
   if (typeof window === 'undefined') return null;
@@ -33,6 +53,9 @@ function loadFromStorage(): FocusSession | null {
       source: parsed.source || null,
       sourceId: parsed.sourceId || null,
       title: parsed.title || '',
+      taskId: parsed.taskId ?? (parsed.source === 'task' ? parsed.sourceId ?? null : null),
+      plannedBlockId: parsed.plannedBlockId ?? (parsed.source === 'block' ? Number.parseInt(String(parsed.sourceId), 10) || null : null),
+      backendSessionId: parsed.backendSessionId ?? null,
     };
   } catch (err) {
     console.error('Failed to load focus session from storage', err);
@@ -59,6 +82,9 @@ function saveToStorage(session: FocusSession | null): void {
         source: session.source,
         sourceId: session.sourceId,
         title: session.title,
+        taskId: session.taskId,
+        plannedBlockId: session.plannedBlockId,
+        backendSessionId: session.backendSessionId,
       })
     );
   } catch (err) {
@@ -66,20 +92,20 @@ function saveToStorage(session: FocusSession | null): void {
   }
 }
 
+function parsePlannedBlockId(blockId: string): number | null {
+  const parsed = Number.parseInt(blockId, 10);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function resolveBlockTaskId(blockId: string): number | null {
+  const blocks = get(plannedEventsStore);
+  const block = blocks.find((entry) => entry.id === blockId);
+  return block?.taskId ?? null;
+}
+
 function createFocusStore() {
   const initialSession = loadFromStorage();
-  const { subscribe, set, update } = writable<FocusSession>(
-    initialSession || {
-      state: 'idle',
-      startedAt: null,
-      endsAt: null,
-      remainingMs: 0,
-      source: null,
-      sourceId: null,
-      title: '',
-    }
-  );
-
+  const { subscribe, set, update } = writable<FocusSession>(initialSession || createIdleSession());
   const { subscribe: subscribeMode, set: setMode, update: updateMode } = writable<boolean>(false);
 
   let timerInterval: ReturnType<typeof setInterval> | null = null;
@@ -90,6 +116,38 @@ function createFocusStore() {
     return settings.productivity?.pomodoroFocus ?? 25;
   }
 
+  function persistSessionStart(session: FocusSession): void {
+    if (!session.startedAt) {
+      return;
+    }
+
+    createFocusSession({
+      taskId: session.taskId,
+      plannedBlockId: session.plannedBlockId,
+      startedAt: session.startedAt.toISOString(),
+    }).then((record) => {
+      update((current) => {
+        if (
+          current.state === 'idle' ||
+          current.backendSessionId ||
+          current.startedAt?.toISOString() !== session.startedAt?.toISOString() ||
+          current.sourceId !== session.sourceId
+        ) {
+          return current;
+        }
+
+        const updated = {
+          ...current,
+          backendSessionId: record.id,
+        };
+        saveToStorage(updated);
+        return updated;
+      });
+    }).catch((err) => {
+      console.error('Failed to persist focus session start', err);
+    });
+  }
+
   function startTimer(): void {
     if (timerInterval) {
       clearInterval(timerInterval);
@@ -97,31 +155,20 @@ function createFocusStore() {
 
     timerInterval = setInterval(() => {
       update((session) => {
-        if (session.state !== 'running') {
+        if (session.state !== 'running' || !session.endsAt) {
           return session;
         }
 
-        if (!session.endsAt) {
-          return session;
-        }
-
-        const now = Date.now();
-        const remaining = session.endsAt.getTime() - now;
-
+        const remaining = session.endsAt.getTime() - Date.now();
         if (remaining <= 0) {
           finish('timeup');
-          return {
-            ...session,
-            state: 'idle',
-            remainingMs: 0,
-          };
+          return createIdleSession();
         }
 
         const updated = {
           ...session,
           remainingMs: remaining,
         };
-
         saveToStorage(updated);
         return updated;
       });
@@ -139,15 +186,10 @@ function createFocusStore() {
     updateMode((current) => !current);
   }
 
-  function startSessionFromTask(
-    taskId: number,
-    title: string,
-    durationMinutes?: number
-  ): void {
+  function startSessionFromTask(taskId: number, title: string, durationMinutes?: number): void {
     const duration = durationMinutes ?? getDefaultDuration();
     const now = new Date();
     const endsAt = new Date(now.getTime() + duration * 60 * 1000);
-
     const session: FocusSession = {
       state: 'running',
       startedAt: now,
@@ -156,24 +198,23 @@ function createFocusStore() {
       source: 'task',
       sourceId: taskId,
       title,
+      taskId,
+      plannedBlockId: null,
+      backendSessionId: null,
     };
 
     set(session);
     saveToStorage(session);
     startTimer();
     setMode(true);
+    persistSessionStart(session);
   }
 
-  function startSessionFromBlock(
-    blockId: string,
-    title: string,
-    start: Date,
-    end: Date
-  ): void {
+  function startSessionFromBlock(blockId: string, title: string, start: Date, end: Date): void {
     const now = new Date();
-    const durationMs = end.getTime() - start.getTime();
+    const durationMs = Math.max(0, end.getTime() - start.getTime());
     const endsAt = new Date(now.getTime() + durationMs);
-
+    const plannedBlockId = parsePlannedBlockId(blockId);
     const session: FocusSession = {
       state: 'running',
       startedAt: now,
@@ -182,12 +223,16 @@ function createFocusStore() {
       source: 'block',
       sourceId: blockId,
       title,
+      taskId: resolveBlockTaskId(blockId),
+      plannedBlockId,
+      backendSessionId: null,
     };
 
     set(session);
     saveToStorage(session);
     startTimer();
     setMode(true);
+    persistSessionStart(session);
   }
 
   function pause(): void {
@@ -197,9 +242,12 @@ function createFocusStore() {
       }
 
       stopTimer();
+      const remainingMs = session.endsAt ? Math.max(0, session.endsAt.getTime() - Date.now()) : session.remainingMs;
       const updated = {
         ...session,
         state: 'paused' as const,
+        remainingMs,
+        endsAt: null,
       };
       saveToStorage(updated);
       return updated;
@@ -212,26 +260,16 @@ function createFocusStore() {
         return session;
       }
 
-      if (!session.endsAt) {
-        return session;
-      }
-
-      const now = Date.now();
-      const remaining = session.endsAt.getTime() - now;
-
-      if (remaining <= 0) {
+      const remainingMs = Math.max(0, session.remainingMs);
+      if (remainingMs <= 0) {
         finish('timeup');
-        return {
-          ...session,
-          state: 'idle',
-          remainingMs: 0,
-        };
+        return createIdleSession();
       }
 
       const updated = {
         ...session,
         state: 'running' as const,
-        remainingMs: remaining,
+        endsAt: new Date(Date.now() + remainingMs),
       };
 
       saveToStorage(updated);
@@ -247,22 +285,14 @@ function createFocusStore() {
       body: string;
       data?: { source?: 'task' | 'block'; id?: number | string };
     } | null = null;
+    let completedSession: FocusSession | null = null;
 
     update((session) => {
       if (session.state === 'idle') {
         return session;
       }
 
-      const idleSession: FocusSession = {
-        state: 'idle',
-        startedAt: null,
-        endsAt: null,
-        remainingMs: 0,
-        source: null,
-        sourceId: null,
-        title: '',
-      };
-
+      completedSession = { ...session };
       saveToStorage(null);
 
       if (reason === 'timeup') {
@@ -279,8 +309,40 @@ function createFocusStore() {
         toastStore.showSuccess('Focus session completed');
       }
 
-      return idleSession;
+      return createIdleSession();
     });
+
+    const sessionToPersist: any = completedSession;
+    if (sessionToPersist && sessionToPersist.startedAt) {
+      const endedAt = new Date();
+      const durationMinutes = Math.max(
+        0,
+        Math.round((endedAt.getTime() - sessionToPersist.startedAt.getTime()) / 60000)
+      );
+
+      try {
+        if (sessionToPersist.backendSessionId) {
+          await completeFocusSession({
+            id: sessionToPersist.backendSessionId,
+            endedAt: endedAt.toISOString(),
+            durationMinutes,
+          });
+        } else {
+          const created = await createFocusSession({
+            taskId: sessionToPersist.taskId,
+            plannedBlockId: sessionToPersist.plannedBlockId,
+            startedAt: sessionToPersist.startedAt.toISOString(),
+          });
+          await completeFocusSession({
+            id: created.id,
+            endedAt: endedAt.toISOString(),
+            durationMinutes,
+          });
+        }
+      } catch (err) {
+        console.error('Failed to persist completed focus session', err);
+      }
+    }
 
     if (notificationPayload) {
       await notify(notificationPayload);
@@ -288,24 +350,19 @@ function createFocusStore() {
   }
 
   if (initialSession && initialSession.state === 'running') {
-    startTimer();
-  } else if (initialSession && initialSession.state === 'paused') {
-    const now = Date.now();
-    if (initialSession.endsAt && initialSession.endsAt.getTime() > now) {
-      initialSession.remainingMs = initialSession.endsAt.getTime() - now;
-      set(initialSession);
-    } else {
-      const idleSession: FocusSession = {
-        state: 'idle',
-        startedAt: null,
-        endsAt: null,
-        remainingMs: 0,
-        source: null,
-        sourceId: null,
-        title: '',
-      };
-      set(idleSession);
+    if (!initialSession.endsAt || initialSession.endsAt.getTime() <= Date.now()) {
+      set(createIdleSession());
       saveToStorage(null);
+    } else {
+      startTimer();
+      if (!initialSession.backendSessionId) {
+        persistSessionStart(initialSession);
+      }
+    }
+  } else if (initialSession && initialSession.state === 'paused') {
+    set(initialSession);
+    if (!initialSession.backendSessionId && initialSession.startedAt) {
+      persistSessionStart(initialSession);
     }
   }
 
@@ -323,3 +380,5 @@ function createFocusStore() {
 }
 
 export const focusStore = createFocusStore();
+
+
