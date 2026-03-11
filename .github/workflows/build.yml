@@ -10,7 +10,7 @@ jobs:
   build-windows:
     name: Build for Windows
     runs-on: windows-latest
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -18,8 +18,9 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '20'
           cache: 'npm'
+          cache-dependency-path: package-lock.json
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -30,35 +31,29 @@ jobs:
         uses: actions/cache@v4
         with:
           path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            src-tauri/target/
+            ~\.cargo\registry\index\
+            ~\.cargo\registry\cache\
+            ~\.cargo\git\db\
+            src-tauri\target\
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-
 
-      - name: Install Tauri CLI
-        run: |
-          cargo install tauri-cli --version "^2.0.0" || cargo install tauri-cli --locked
-
       - name: Install npm dependencies
         run: npm ci
+
+      - name: TypeScript check
+        run: npx tsc --noEmit
+
+      - name: Rust check
+        working-directory: src-tauri
+        run: cargo check
 
       - name: Build Tauri application
         run: npm run tauri:build
         env:
           TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
           TAURI_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
-
-      - name: Upload MSI installer
-        uses: actions/upload-artifact@v4
-        with:
-          name: prism-calendar-windows-msi
-          path: src-tauri/target/release/bundle/msi/*.msi
-          retention-days: 30
-          if-no-files-found: warn
 
       - name: Upload NSIS installer (EXE)
         uses: actions/upload-artifact@v4
@@ -75,4 +70,3 @@ jobs:
           path: src-tauri/target/release/prism-calendar.exe
           retention-days: 30
           if-no-files-found: warn
-
