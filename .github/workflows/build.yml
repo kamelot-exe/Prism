@@ -51,9 +51,6 @@ jobs:
 
       - name: Build Tauri application
         run: npm run tauri:build
-        env:
-          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
-          TAURI_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
 
       - name: Upload NSIS installer (EXE)
         uses: actions/upload-artifact@v4
